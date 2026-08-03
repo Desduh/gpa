@@ -2,9 +2,10 @@ import numpy as np
 from math import atan2, sqrt, pi
 from scipy.spatial import Delaunay
 import matplotlib.pyplot as plt
+from numpy.typing import NDArray
 
 class GPA:
-    def __init__(self, matrix):
+    def __init__(self, matrix: NDArray[np.integer | np.floating]):
         """
         Gradient Pattern Analysis (GPA) implementation.
 
@@ -135,7 +136,7 @@ class GPA:
 
 
     
-    def evaluate(self, mtol, ftol, ptol, mask=None,
+    def evaluate(self, mtol, ftol, ptol, rtol=None, mask=None,
                 moments=["G1", "G2", "G3", "G4"]):
         """
         Perform Gradient Pattern Analysis (GPA) and compute the selected
@@ -166,8 +167,11 @@ class GPA:
             Angular tolerance used to compare the orientations of opposite
             gradient vectors.
         ptol : float
-            Radial distance tolerance. Gradient vectors whose radial distances differ
-            by at most `ptol` are assigned to the same radial group.
+            Position tolerance used to identify radially opposite gradient vectors.
+
+        rtol : float, optional
+            Radial distance tolerance used to group gradient vectors into the same
+            radial shell. If not provided, the value of `ptol` is used by default.
         mask : numpy.ndarray, optional
             Binary mask defining the valid image region. If ``None``, the
             entire image is considered.
@@ -180,6 +184,9 @@ class GPA:
         dict
             Dictionary containing the requested GPA moments.
         """
+
+        if rtol is None:
+            rtol = ptol
 
         self.mask = mask
         if mask is None:
@@ -221,7 +228,8 @@ class GPA:
             radial_distance_map,
             mtol,
             ftol,
-            ptol
+            ptol,
+            rtol
         )
 
 
@@ -419,7 +427,7 @@ class GPA:
 
     def _update_asymmetric_mat(self, unique_radii,
                            radial_distance_map,
-                           mtol, ftol, ptol):
+                           mtol, ftol, ptol, rtol):
         """
         Remove radially symmetric contributions from the gradient field.
 
@@ -484,8 +492,11 @@ class GPA:
             Angular tolerance for identifying opposite gradient vectors.
 
         ptol : float
-            Radial distance tolerance. Gradient vectors whose radial distances differ
-            by at most `ptol` are assigned to the same radial group.
+            Position tolerance used to identify radially opposite gradient vectors.
+
+        rtol : float, optional
+            Radial distance tolerance used to group gradient vectors into the same
+            radial shell. If not provided, the value of `ptol` is used by default.
         """
 
         # Convert the arrays to the same data types used by the
@@ -582,68 +593,41 @@ class GPA:
                     # cont += 1
                     # print(f"    compare {cont}: ({px},{py}) x ({px2},{py2})")
 
-                    # Check whether the gradient magnitudes are similar.
-                    # if abs(self.mods[py, px] - self.mods[py2, px2]) <= mtol * self.maxGrad:
-
-                    #     # essa mudança é realmente muito importante
-                    #     # Check whether the gradient vectors have
-                    #     # approximately opposite orientations.
-                    #     angle_opposite = (
-                    #         abs(
-                    #             self._angleDifference(
-                    #                 self.phases[py, px],
-                    #                 self.phases[py2, px2]
-                    #             ) - np.pi
-                    #         ) <= ftol
-                    #     )
-
-                    #     # Check whether the two pixels are opposite
-                    #     # with respect to the analysis center.
-                    #     #
-                    #     # (px, py) + (px2, py2) ≈ 2*(cx, cy)
-                    #     position_opposite = (
-                    #         abs((px + px2) - 2*self.cx) <= ptol
-                    #         and
-                    #         abs((py + py2) - 2*self.cy) <= ptol
-                    #     )
-
-                    #     if angle_opposite and position_opposite:
-
-                    #         # Remove both vectors since they represent
-                    #         # a radially symmetric contribution.
-                    #         self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
-                    #         self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
-
-                    #         self.gradient_asymmetric_dx[py2, px2] = np.float32(0.0)
-                    #         self.gradient_asymmetric_dy[py2, px2] = np.float32(0.0)
-
-                    #         break
 
                     # Check whether the gradient magnitudes are similar.
                     # cont +=1
                     if abs(self.mods[py, px] - self.mods[py2, px2]) <= mtol * self.maxGrad:
 
-                        # print('px, py:', px, py, 'px2, py2:', px2, py2)
-
                         # Check whether the gradient vectors have
                         # approximately opposite orientations.
-                        if abs(
-                            self._angleDifference(
-                                self.phases[py, px],
-                                self.phases[py2, px2]
-                            ) - np.pi
-                        ) <= ftol:
+                        angle_opposite = (
+                            abs(
+                                self._angleDifference(
+                                    self.phases[py, px],
+                                    self.phases[py2, px2]
+                                ) - np.pi
+                            ) <= ftol
+                        )
 
-                            
-                            # print(f"BREAK: ({px},{py}) com ({px2},{py2})")
+                        # Check whether the two pixels are opposite
+                        # with respect to the analysis center.
+                        # (px, py) + (px2, py2) ≈ 2*(cx, cy)
+                        position_opposite = (
+                            abs((px + px2) - 2*self.cx) <= rtol
+                            and
+                            abs((py + py2) - 2*self.cy) <= rtol
+                        )
+                        # print(f"    position_opposite: {position_opposite}")
+
+                        if angle_opposite and position_opposite:
 
                             # Remove both vectors since they represent
                             # a radially symmetric contribution.
-                            self.gradient_asymmetric_dx[py, px] = 0
-                            self.gradient_asymmetric_dy[py, px] = 0
+                            self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
+                            self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
 
-                            self.gradient_asymmetric_dx[py2, px2] = 0
-                            self.gradient_asymmetric_dy[py2, px2] = 0
+                            self.gradient_asymmetric_dx[py2, px2] = np.float32(0.0)
+                            self.gradient_asymmetric_dy[py2, px2] = np.float32(0.0)
 
                             break
             # print(cont)
