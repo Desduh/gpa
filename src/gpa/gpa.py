@@ -135,7 +135,7 @@ class GPA:
 
 
     
-    def evaluate(self, mtol, ftol, ptol, mask=None, plot=False,
+    def evaluate(self, mtol, ftol, ptol, mask=None,
                 moments=["G1", "G2", "G3", "G4"]):
         """
         Perform Gradient Pattern Analysis (GPA) and compute the selected
@@ -166,13 +166,11 @@ class GPA:
             Angular tolerance used to compare the orientations of opposite
             gradient vectors.
         ptol : float
-            Positional tolerance used when identifying radially symmetric
-            vector pairs.
+            Radial distance tolerance. Gradient vectors whose radial distances differ
+            by at most `ptol` are assigned to the same radial group.
         mask : numpy.ndarray, optional
             Binary mask defining the valid image region. If ``None``, the
             entire image is considered.
-        plot : bool, default=False
-            If ``True``, display the gradient field.
         moments : list of str, optional
             GPA moments to compute. Valid options are ``"G1"``, ``"G2"``,
             ``"G3"``, and ``"G4"``.
@@ -182,12 +180,14 @@ class GPA:
         dict
             Dictionary containing the requested GPA moments.
         """
+
+        self.mask = mask
         if mask is None:
-            mask = np.ones_like(self.matrix, dtype=np.float32)
+            self.mask = np.ones_like(self.matrix, dtype=np.float32)
 
         # Compute the image gradient field, as well as the
         # corresponding magnitudes and orientations.
-        self._setGradients(plot)
+        self._setGradients()
 
 
         # Update the image dimensions
@@ -217,7 +217,6 @@ class GPA:
         # Remove radially symmetric gradient vectors,
         # producing the asymmetric gradient field.
         self._update_asymmetric_mat(
-            mask,
             unique_radii,
             radial_distance_map,
             mtol,
@@ -256,12 +255,13 @@ class GPA:
 
             results[moment] = available_moments[moment]()
 
+        self.radial_distance_map = radial_distance_map
 
         return results
 
 
         
-    def _setGradients(self, plot):
+    def _setGradients(self):
         """
         Compute the image gradient field and its associated properties.
 
@@ -339,9 +339,6 @@ class GPA:
             angle + 2 * np.pi
         ).astype(np.float32)
 
-        if plot:
-            self._plot_gradient_field(gx, gy)
-
 
 
     def gradient(self, matrix):
@@ -418,94 +415,9 @@ class GPA:
 
         return dy, dx
 
-    
-
-    def _plot_gradient_field(self, gx, gy, fixed_length=True):
-        """
-        Display the image gradient field as a vector plot.
-
-        Each arrow represents a gradient vector:
-
-            ∇I = (Gx, Gy)
-
-        When ``fixed_length=True``, all arrows are normalized to the same
-        length so that only the gradient orientations are visualized.
-
-        When ``fixed_length=False``, the arrow lengths are proportional to
-        the gradient magnitudes:
-
-            |∇I| = sqrt(Gx² + Gy²)
-
-        Parameters
-        ----------
-        gx : numpy.ndarray
-            Horizontal gradient component.
-        gy : numpy.ndarray
-            Vertical gradient component.
-        fixed_length : bool, default=True
-            If ``True``, normalize all gradient vectors to unit length for
-            visualization. Otherwise, display vectors with their original
-            magnitudes.
-        """
-
-        # Create a coordinate grid for the image
-        y, x = np.mgrid[
-            0:self.rows,
-            0:self.cols
-        ]
-
-        # Normalize the vectors or preserve their original magnitudes
-        if fixed_length:
-
-            magnitude = np.sqrt(gx**2 + gy**2)
-
-            # Avoid division by zero in regions with zero gradient
-            magnitude[magnitude == 0] = 1
-
-            scale = 0.8
-
-            u = (gx / magnitude) * scale
-            v = (gy / magnitude) * scale
-
-        else:
-
-            u = gx
-            v = gy
-
-        plt.figure(figsize=(8, 8))
-
-        # Display the input image as the background
-        plt.imshow(
-            self.matrix,
-            cmap="gray",
-            origin="upper"
-        )
-
-        # Overlay the gradient vector field
-        plt.quiver(
-            x,
-            y,
-            u,
-            v,
-            color="red",
-            angles="xy",
-            scale_units="xy",
-            scale=1
-        )
-
-        plt.title("Gradient Field")
-        plt.xlabel("x")
-        plt.ylabel("y")
-
-        # Match the image coordinate system
-        plt.gca().invert_yaxis()
-
-        plt.show()
 
 
-
-
-    def _update_asymmetric_mat(self, mask, unique_radii,
+    def _update_asymmetric_mat(self, unique_radii,
                            radial_distance_map,
                            mtol, ftol, ptol):
         """
@@ -558,9 +470,6 @@ class GPA:
 
         Parameters
         ----------
-        mask : numpy.ndarray
-            Binary image mask. Pixels with a value of zero are ignored.
-
         unique_radii : numpy.ndarray
             Array containing the distinct radial distances.
 
@@ -575,12 +484,13 @@ class GPA:
             Angular tolerance for identifying opposite gradient vectors.
 
         ptol : float
-            Radial distance tolerance used to group gradient vectors.
+            Radial distance tolerance. Gradient vectors whose radial distances differ
+            by at most `ptol` are assigned to the same radial group.
         """
 
         # Convert the arrays to the same data types used by the
         # original Cython implementation.
-        mask = np.asarray(mask, dtype=np.float32)
+        mask = np.asarray(self.mask, dtype=np.float32)
         unique_radii = np.asarray(unique_radii, dtype=np.int32)
         radial_distance_map = np.asarray(radial_distance_map, dtype=np.int32)
 
@@ -594,7 +504,7 @@ class GPA:
         # Process each radial distance.
         # Gradient vectors belonging to the same radial group
         # may form symmetric pairs.
-        for ind in range(0, len(unique_radii), 1):
+        for radius in unique_radii:
 
             x2 = []
             y2 = []
@@ -604,7 +514,7 @@ class GPA:
             for py in range(self.rows):
                 for px in range(self.cols):
 
-                    if abs(radial_distance_map[py, px] - ind) <= abs(ptol):
+                    if abs(radial_distance_map[py, px] - radius) <= abs(ptol):
                         x2.append(px)
                         y2.append(py)
 
@@ -612,10 +522,14 @@ class GPA:
             x = np.array(x2, dtype=np.int32)
             y = np.array(y2, dtype=np.int32)
 
+            # print('radius:', radius, 'x:', x, 'y:', y)
+
             lx = len(x)
+            # print('lx:', lx)
 
             # Compare every pair of gradient vectors in the
             # current radial group.
+            # cont = 0
             for i in range(lx):
 
                 px = x[i]
@@ -624,11 +538,25 @@ class GPA:
                 # Remove gradient vectors whose magnitude is
                 # below the specified threshold.
                 if (self.mods[py, px] / self.maxGrad) <= mtol:
+                    # print('Removing vector at (px, py):', px, py, 'due to low magnitude.')
                     self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
                     self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
 
                 # Ignore masked pixels.
+                # if mask[py, px] == 0:
+                #     continue
+
+
+                # print(f"\ni={i}, ({px},{py}), mask={mask[py,px]}")
+
                 if mask[py, px] == 0:
+                    # print("  -> outer continue")
+                    continue
+
+                if (
+                    self.gradient_asymmetric_dx[py, px] == 0.0
+                    and self.gradient_asymmetric_dy[py, px] == 0.0
+                ):
                     continue
 
                 # Compare the current vector with the remaining
@@ -638,11 +566,64 @@ class GPA:
                     px2 = x[j]
                     py2 = y[j]
 
+                    # if mask[py2, px2] == 0:
+                    #     continue
+
                     if mask[py2, px2] == 0:
+                        # print(f"    j={j}, ({px2},{py2}) -> inner continue")
                         continue
 
+                    if (
+                        self.gradient_asymmetric_dx[py2, px2] == 0.0
+                        and self.gradient_asymmetric_dy[py2, px2] == 0.0
+                    ):
+                        continue
+
+                    # cont += 1
+                    # print(f"    compare {cont}: ({px},{py}) x ({px2},{py2})")
+
                     # Check whether the gradient magnitudes are similar.
+                    # if abs(self.mods[py, px] - self.mods[py2, px2]) <= mtol * self.maxGrad:
+
+                    #     # essa mudança é realmente muito importante
+                    #     # Check whether the gradient vectors have
+                    #     # approximately opposite orientations.
+                    #     angle_opposite = (
+                    #         abs(
+                    #             self._angleDifference(
+                    #                 self.phases[py, px],
+                    #                 self.phases[py2, px2]
+                    #             ) - np.pi
+                    #         ) <= ftol
+                    #     )
+
+                    #     # Check whether the two pixels are opposite
+                    #     # with respect to the analysis center.
+                    #     #
+                    #     # (px, py) + (px2, py2) ≈ 2*(cx, cy)
+                    #     position_opposite = (
+                    #         abs((px + px2) - 2*self.cx) <= ptol
+                    #         and
+                    #         abs((py + py2) - 2*self.cy) <= ptol
+                    #     )
+
+                    #     if angle_opposite and position_opposite:
+
+                    #         # Remove both vectors since they represent
+                    #         # a radially symmetric contribution.
+                    #         self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
+                    #         self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
+
+                    #         self.gradient_asymmetric_dx[py2, px2] = np.float32(0.0)
+                    #         self.gradient_asymmetric_dy[py2, px2] = np.float32(0.0)
+
+                    #         break
+
+                    # Check whether the gradient magnitudes are similar.
+                    # cont +=1
                     if abs(self.mods[py, px] - self.mods[py2, px2]) <= mtol * self.maxGrad:
+
+                        # print('px, py:', px, py, 'px2, py2:', px2, py2)
 
                         # Check whether the gradient vectors have
                         # approximately opposite orientations.
@@ -653,15 +634,19 @@ class GPA:
                             ) - np.pi
                         ) <= ftol:
 
+                            
+                            # print(f"BREAK: ({px},{py}) com ({px2},{py2})")
+
                             # Remove both vectors since they represent
                             # a radially symmetric contribution.
-                            self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
-                            self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
+                            self.gradient_asymmetric_dx[py, px] = 0
+                            self.gradient_asymmetric_dy[py, px] = 0
 
-                            self.gradient_asymmetric_dx[py2, px2] = np.float32(0.0)
-                            self.gradient_asymmetric_dy[py2, px2] = np.float32(0.0)
+                            self.gradient_asymmetric_dx[py2, px2] = 0
+                            self.gradient_asymmetric_dy[py2, px2] = 0
 
                             break
+            # print(cont)
 
         # Preserve compatibility with the original Cython implementation.
         if len(removedP) > 0:
@@ -679,8 +664,10 @@ class GPA:
 
                 # Valid asymmetric gradient vector.
                 if (
-                    self.gradient_asymmetric_dy[j, i] != 0.0
-                    and self.gradient_asymmetric_dx[j, i] != 0.0
+                    (
+                        self.gradient_asymmetric_dy[j, i] != 0.0
+                        or self.gradient_asymmetric_dx[j, i] != 0.0
+                    )
                     and mask[j, i] != 0.0
                 ):
                     nremovedP.append([j, i])
@@ -696,8 +683,12 @@ class GPA:
         if len(nremovedP) > 0:
             self.nremovedP = np.array(nremovedP, dtype=np.int32)
     
+    # def _angleDifference(self, a1, a2):
+    #   return min(abs(a1-a2), abs(abs(a1-a2)-2*np.pi))
+
     def _angleDifference(self, a1, a2):
-      return min(abs(a1-a2), abs(abs(a1-a2)-2*np.pi))
+        diff = abs(a1-a2)
+        return min(diff, 2*np.pi-diff)
     
 
     
@@ -818,3 +809,258 @@ class GPA:
         )
 
         return vectorial_diversity
+
+    
+
+    def plot_gradient_field(self, fixed_length=True):
+        """
+        Display the image gradient field as a vector plot.
+
+        Each arrow represents a gradient vector:
+
+            ∇I = (Gx, Gy)
+
+        When ``fixed_length=True``, all arrows are normalized to the same
+        length so that only the gradient orientations are visualized.
+
+        When ``fixed_length=False``, the arrow lengths are proportional to
+        the gradient magnitudes:
+
+            |∇I| = sqrt(Gx² + Gy²)
+
+        Parameters
+        ----------
+        fixed_length : bool, default=True
+            If ``True``, normalize all gradient vectors to unit length for
+            visualization. Otherwise, display vectors with their original
+            magnitudes.
+        """
+
+        gx = self.gradient_dx
+        gy = self.gradient_dy
+
+        # Create a coordinate grid for the image
+        y, x = np.mgrid[
+            0:self.rows,
+            0:self.cols
+        ]
+
+        x = x + 0.5
+        y = y + 0.5
+
+        # Normalize the vectors or preserve their original magnitudes
+        if fixed_length:
+
+            magnitude = np.sqrt(gx**2 + gy**2)
+
+            # Avoid division by zero in regions with zero gradient
+            magnitude[magnitude == 0] = 1
+
+            scale = 0.8
+
+            u = (gx / magnitude) * scale
+            v = (gy / magnitude) * scale
+
+        else:
+
+            u = gx
+            v = gy
+
+        # Pixels where vectors will be displayed
+        valid = self.mask.astype(bool)
+
+        # Bounding box of the mask
+        rows, cols = np.where(valid)
+
+        margin = 2
+
+        ymin = max(rows.min() - margin, 0)
+        ymax = min(rows.max() + margin + 1, self.rows)
+
+        xmin = max(cols.min() - margin, 0)
+        xmax = min(cols.max() + margin + 1, self.cols)
+
+        plt.figure(figsize=(8, 8))
+        # Display cropped image while keeping original coordinates
+        plt.imshow(
+            self.matrix[ymin:ymax, xmin:xmax],
+            cmap="gray",
+            origin="lower",
+            extent=[
+                xmin,
+                xmax,
+                ymin,
+                ymax
+            ]
+        )
+
+
+        # Plot gradient vectors using original coordinates
+        plt.quiver(
+            x[valid],
+            y[valid],
+            u[valid],
+            v[valid],
+            color="red",
+            angles="xy",
+            scale_units="xy",
+            scale=1
+        )
+
+
+        # Plot analysis center using original coordinates
+        plt.scatter(
+            self.cx + 0.5,
+            self.cy + 0.5,
+            marker="x",
+            color="blue",
+            s=150,
+            linewidths=2
+        )
+
+
+        plt.title("Gradient Field")
+        plt.xlabel("x")
+        plt.ylabel("y")
+
+
+        # Preserve original coordinate system
+        plt.xlim(
+            xmin,
+            xmax
+        )
+
+        plt.ylim(
+            ymin,
+            ymax
+        )
+
+
+        plt.show()
+
+
+    def plot_asymmetric_gradient_field(self, fixed_length=True):
+        """
+        Plot the remaining asymmetric gradient vectors after
+        removing radially symmetric contributions.
+
+        Parameters
+        ----------
+        fixed_length : bool, default=True
+            If True, normalize vectors to show only orientations.
+        """
+
+        gx = self.gradient_asymmetric_dx
+        gy = self.gradient_asymmetric_dy
+
+        valid = (
+            self.mask.astype(bool) &
+            ((gx != 0) | (gy != 0))
+        )
+
+        has_vectors = np.any(valid)
+
+        y, x = np.mgrid[
+            0:self.rows,
+            0:self.cols
+        ]
+
+        x = x + 0.5
+        y = y + 0.5
+
+        # Determine plotting region.
+        if max(self.rows, self.cols) > 50 and has_vectors:
+
+            rows, cols = np.where(valid)
+
+            margin = 2
+
+            ymin = max(rows.min() - margin, 0)
+            ymax = min(rows.max() + margin + 1, self.rows)
+
+            xmin = max(cols.min() - margin, 0)
+            xmax = min(cols.max() + margin + 1, self.cols)
+
+        else:
+
+            ymin = 0
+            ymax = self.rows
+
+            xmin = 0
+            xmax = self.cols
+
+        # Normalize vectors if requested.
+        if has_vectors:
+
+            if fixed_length:
+
+                magnitude = np.sqrt(gx**2 + gy**2)
+
+                magnitude[magnitude == 0] = 1
+
+                scale = 0.8
+
+                u = (gx / magnitude) * scale
+                v = (gy / magnitude) * scale
+
+            else:
+
+                u = gx
+                v = gy
+
+        else:
+
+            print("No asymmetric gradient vectors remaining.")
+
+        plt.figure(figsize=(8, 8))
+
+        plt.imshow(
+            self.matrix[ymin:ymax, xmin:xmax],
+            cmap="gray",
+            origin="lower",
+            extent=[
+                xmin,
+                xmax,
+                ymin,
+                ymax
+            ]
+        )
+
+        if has_vectors:
+
+            plt.quiver(
+                x[valid],
+                y[valid],
+                u[valid],
+                v[valid],
+                color="red",
+                angles="xy",
+                scale_units="xy",
+                scale=1
+            )
+
+            plt.title("Asymmetric Gradient Field")
+
+        else:
+
+            plt.title(
+                "Asymmetric Gradient Field\n"
+                "No asymmetric vectors remaining"
+            )
+
+        plt.scatter(
+            self.cx + 0.5,
+            self.cy + 0.5,
+            marker="x",
+            color="blue",
+            s=150,
+            linewidths=2
+        )
+
+        plt.xlabel("x")
+        plt.ylabel("y")
+
+        plt.xlim(xmin, xmax)
+        plt.ylim(ymin, ymax)
+
+        plt.show()
