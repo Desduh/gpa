@@ -59,16 +59,15 @@ class GPA:
             Two-dimensional input image :math:`I(x, y)`. The input must be a
             2D NumPy array.
         """
-
-        if not isinstance(matrix, np.ndarray):
+        
+        if not np.issubdtype(matrix.dtype, np.number) or np.iscomplexobj(matrix):
             raise TypeError(
-                f"'matrix' must be a numpy.ndarray, got {type(matrix).__name__}."
+                "Input matrix must contain only real numerical values."
             )
 
-        # Check whether it is a two-dimensional matrix
         if matrix.ndim != 2:
             raise ValueError(
-                f"'matrix' must be a 2D matrix, got an array with {matrix.ndim} dimensions."
+                "Input matrix must be two-dimensional."
             )
         
         # Convert only the data type without creating a copy if unnecessary
