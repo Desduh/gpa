@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gradient-pattern-analysis"
+version = "0.1.0"
+description = "Gradient Pattern Analysis package"
+authors = [
+    {name = "Carlos Eduardo Falandes"}
+]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
