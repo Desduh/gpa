@@ -4,8 +4,25 @@ from scipy.spatial import Delaunay
 import matplotlib.pyplot as plt
 from numpy.typing import NDArray
 
+plt.rcParams.update({
+    "font.family": "Times New Roman",
+    "font.size": 14,
+    "axes.labelsize": 14,
+    "axes.titlesize": 16,
+    "xtick.labelsize": 12,
+    "ytick.labelsize": 12,
+    "legend.fontsize": 12,
+    "figure.dpi": 300,      
+    "savefig.dpi": 300,     
+    "axes.linewidth": 1.2,
+    "xtick.direction": "in",
+    "ytick.direction": "in",
+    "xtick.major.size": 5,
+    "ytick.major.size": 5,
+})
+
 class GPA:
-    def __init__(self, matrix: NDArray[np.integer | np.floating]):
+    def __init__(self, matrix: NDArray[np.number]):
         """
         Gradient Pattern Analysis (GPA) implementation.
 
@@ -17,7 +34,6 @@ class GPA:
         Reference
         ---------
         Paper:
-        <insert paper citation or DOI here>
 
         Example
         -------
@@ -129,7 +145,21 @@ class GPA:
         # Maximum gradient magnitude found in the image
         self.maxGrad = 0.0
 
-    def setPosition(self, cx, cy):
+    def setPosition(self, cx: float, cy: float):
+        """
+        Set the reference center used in the GPA analysis.
+
+        The reference center defines the point with respect to which radially
+        symmetric gradient vectors are identified and removed during the
+        computation of the GPA moments.
+
+        Parameters
+        ----------
+        cx : float
+            X-coordinate of the reference center.
+        cy : float
+            Y-coordinate of the reference center.
+        """
         self.cx = float(cx)
         self.cy = float(cy)
 
