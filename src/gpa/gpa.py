@@ -12,7 +12,7 @@ plt.rcParams.update({
     "xtick.labelsize": 12,
     "ytick.labelsize": 12,
     "legend.fontsize": 12,
-    "figure.dpi": 300,      
+    "figure.dpi": 100,      
     "savefig.dpi": 300,     
     "axes.linewidth": 1.2,
     "xtick.direction": "in",
@@ -149,9 +149,8 @@ class GPA:
         """
         Set the reference center used in the GPA analysis.
 
-        The reference center defines the point with respect to which radially
-        symmetric gradient vectors are identified and removed during the
-        computation of the GPA moments.
+        If this method is not called, the geometric center of the input image
+        is used by default.
 
         Parameters
         ----------
@@ -893,7 +892,7 @@ class GPA:
         xmin = max(cols.min() - margin, 0)
         xmax = min(cols.max() + margin + 1, self.cols)
 
-        plt.figure(figsize=(8, 8))
+        plt.figure(figsize=(5, 5))
         # Display cropped image while keeping original coordinates
         plt.imshow(
             self.matrix[ymin:ymax, xmin:xmax],
@@ -1025,7 +1024,7 @@ class GPA:
 
             print("No asymmetric gradient vectors remaining.")
 
-        plt.figure(figsize=(8, 8))
+        plt.figure(figsize=(5, 5))
 
         plt.imshow(
             self.matrix[ymin:ymax, xmin:xmax],
