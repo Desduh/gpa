@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints
+
+# VSCode settings
+.vscode/
+
+# PyCharm
+.idea/
+
+# Logs e arquivos temporários
+*.log
+*.tmp
+*.bak
+
+# Dados e resultados
+data/
+*.csv
+*.tsv
+*.h5
+*.npy
+*.npz
+*.pkl
+*.sav
+*.mat
+*.txt
+
+# Arquivos de imagem ou figuras geradas
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+# Arquivos grandes (se estiver usando DVC, por exemplo)
+*.zip
+*.tar
+*.gz
+
+# Configuração de sistemas operacionais
+.DS_Store
+Thumbs.db

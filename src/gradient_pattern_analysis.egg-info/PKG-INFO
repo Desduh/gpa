@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: gradient-pattern-analysis
+Version: 0.1.0
+Summary: Gradient Pattern Analysis package
+Author: Carlos Eduardo Falandes
+Requires-Python: >=3.9
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: matplotlib

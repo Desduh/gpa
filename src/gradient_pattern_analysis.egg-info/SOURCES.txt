@@ -1,0 +1,8 @@
+pyproject.toml
+src/gpa/__init__.py
+src/gpa/gpa.py
+src/gradient_pattern_analysis.egg-info/PKG-INFO
+src/gradient_pattern_analysis.egg-info/SOURCES.txt
+src/gradient_pattern_analysis.egg-info/dependency_links.txt
+src/gradient_pattern_analysis.egg-info/requires.txt
+src/gradient_pattern_analysis.egg-info/top_level.txt
