@@ -41,6 +41,7 @@ data/
 *.jpeg
 *.gif
 *.svg
+*.pyc
 
 # Arquivos grandes (se estiver usando DVC, por exemplo)
 *.zip

@@ -705,14 +705,130 @@ class GPA:
 
     
     def _G1(self):
-         
-        return
-    def _G3(self):
-         
-        return
-    def _G4(self):
-         
-        return
+        """
+        Compute the first-order Gradient Pattern Analysis (G1) index.
+
+        This implementation reproduces in Python the original first-order
+        Gradient Pattern Analysis formulation introduced by Rosa, Sharma,
+        and Valdivia (1999). The mathematical procedure and normalization
+        used in the original implementation are preserved; only the
+        programming language has been changed from the original
+        implementation to Python.
+
+        The G1 index is calculated from the Delaunay triangulation of the
+        non-zero asymmetric gradient vectors. The spatial position of each
+        gradient vector is combined with its normalized gradient components
+        to define the points used in the triangulation.
+
+        The number of unique Delaunay edges is compared with the total
+        number of non-zero asymmetric gradient vectors according to
+
+            G1 = (N_edges - N_asymmetric) / N_asymmetric
+
+        where ``N_edges`` is the number of unique edges in the Delaunay
+        triangulation and ``N_asymmetric`` is the number of non-zero
+        asymmetric gradient vectors.
+
+        The gradient components are rescaled using the same normalization
+        factor as in the original implementation. This scaling affects only
+        the spatial representation of the gradient vectors used to construct
+        the asymmetric triangulation.
+
+        References
+        ----------
+        Rosa, R. R., Sharma, A. S., & Valdivia, J. A. (1999).
+        "Characterization of Asymmetric Fragmentation Patterns in Spatially
+        Extended Systems."
+        International Journal of Modern Physics C, 10(1), 147-163.
+        https://doi.org/10.1142/S0129183199000103
+
+        Notes
+        -----
+        This Python implementation is intended to preserve the mathematical
+        formulation of the original 1999 method, rather than introduce a new
+        definition of the G1 parameter.
+        """
+
+        dx = self.gradient_asymmetric_dx
+        dy = self.gradient_asymmetric_dy
+
+        # Select non-zero asymmetric gradient vectors
+        # Equivalent to:
+        #
+        # naozero = WHERE((dx NE 0) OR (dy NE 0))
+
+        naozero = np.flatnonzero(
+            (dx != 0) | (dy != 0)
+        )
+
+        self.totalAssimetric = len(naozero)
+
+        print(self.totalVet)
+        print(self.totalAssimetric)
+
+        if self.totalAssimetric < 3:
+            self.n_edges = 0
+            G1 = 0.0
+            return G1
+
+        # IDL factor
+
+        factor = 1.0 / (
+            2.0 * np.sqrt(
+                np.abs(np.max(dx))**2 +
+                np.abs(np.max(dy))**2
+            )
+        )
+
+        # Convert flattened IDL indices to (row, column)
+
+        rows, cols = np.unravel_index(
+            naozero,
+            dx.shape
+        )
+
+        # IDL:
+        #
+        # vvx = dx(naozero)*factor + naozero MOD my
+        # vvy = dy(naozero)*factor + naozero/my
+
+        self.vvx = (
+            dx[rows, cols] * factor
+            + cols
+        )
+
+        self.vvy = (
+            dy[rows, cols] * factor
+            + rows
+        )
+
+        # Delaunay triangulation
+
+        triangulation_points = np.column_stack(
+            (self.vvx, self.vvy)
+        ).astype(np.float64)
+
+        self.triangles = Delaunay(
+            triangulation_points
+        )
+
+        # Number of unique Delaunay edges
+
+        indptr, indices = (
+            self.triangles.vertex_neighbor_vertices
+        )
+
+        self.n_edges = len(indices) / 2.0
+
+        # GPA / Fragmentation
+
+        print("n_edges:", self.n_edges)
+
+        G1 = (
+            self.n_edges - self.totalAssimetric
+        ) / self.totalAssimetric
+
+        return G1
 
     def _G2(self):
         """
@@ -758,6 +874,14 @@ class GPA:
         ) * (2.0 - self.phaseDiversity)
 
         return G2
+
+    
+    def _G3(self):
+            
+        return
+    def _G4(self):
+            
+        return
 
     def _vectorialVariety(self):
         """
@@ -821,6 +945,156 @@ class GPA:
         )
 
         return vectorial_diversity
+
+
+    
+    def plot_delaunay_triangulation(self):
+        """
+        Plot the asymmetric gradient field and its Delaunay triangulation.
+
+        The asymmetric gradient vectors are displayed over the original
+        image, together with the Delaunay triangulation constructed from
+        the spatial positions of the gradient-field points.
+
+        All spatial coordinates are shifted by +0.5 in both x and y
+        directions to align the vector field and triangulation with the
+        pixel-centered coordinate system used for the image.
+
+        The plotting region is automatically restricted to the region
+        containing valid gradient vectors, with a small margin for
+        visualization.
+
+        Notes
+        -----
+        The asymmetric gradient vectors are rescaled for visualization
+        purposes only; their original values are not modified.
+        """
+
+
+        gx = self.gradient_asymmetric_dx
+        gy = self.gradient_asymmetric_dy
+
+        valid = (
+            self.mask.astype(bool) &
+            ((gx != 0) | (gy != 0))
+        )
+
+        has_vectors = np.any(valid)
+
+        y, x = np.mgrid[
+            0:self.rows,
+            0:self.cols
+        ]
+
+        x = x + 0.5
+        y = y + 0.5
+
+        # Determine plotting region.
+        if max(self.rows, self.cols) > 50 and has_vectors:
+
+            rows, cols = np.where(valid)
+
+            margin = 2
+
+            ymin = max(rows.min() - margin, 0)
+            ymax = min(rows.max() + margin + 1, self.rows)
+
+            xmin = max(cols.min() - margin, 0)
+            xmax = min(cols.max() + margin + 1, self.cols)
+
+        else:
+
+            ymin = 0
+            ymax = self.rows
+
+            xmin = 0
+            xmax = self.cols
+
+        # Normalize vectors if requested.
+        if has_vectors:
+
+            factor = 1.0 / (
+                2.0 * np.sqrt(
+                    np.abs(np.max(gx))**2 +
+                    np.abs(np.max(gy))**2
+                )
+            )
+
+            u = gx * factor
+            v = gy * factor
+
+        else:
+
+            print("No asymmetric gradient vectors remaining.")
+
+        plt.figure(figsize=(5, 5))
+
+        plt.imshow(
+            self.matrix[ymin:ymax, xmin:xmax],
+            cmap="gray",
+            origin="lower",
+            extent=[
+                xmin,
+                xmax,
+                ymin,
+                ymax
+            ]
+        )
+
+        if has_vectors:
+
+            plt.quiver(
+                x[valid],
+                y[valid],
+                u[valid],
+                v[valid],
+                color="red",
+                angles="xy",
+                scale_units="xy",
+                scale=1
+            )
+
+            plt.title("Asymmetric Gradient Field + Delaunay Triangulation")
+
+        else:
+
+            plt.title(
+                "Asymmetric Gradient Field\n"
+                "No asymmetric vectors remaining"
+            )
+
+        plt.triplot(
+            self.vvx + 0.5,                  
+            self.vvy + 0.5,                  
+            self.triangles.simplices,
+            color="red"
+        )
+
+        # Points used in triangulation
+
+        plt.scatter(
+            self.vvx + 0.5,                  
+            self.vvy + 0.5,                  
+            s=10,
+            zorder=3
+        )
+
+        plt.scatter(
+            self.cx + 0.5,
+            self.cy + 0.5,
+            marker="x",
+            color="blue",
+            s=150,
+            linewidths=2
+        )
+
+        plt.xlabel("x")
+        plt.ylabel("y")
+
+        plt.xlim(xmin, xmax)
+        plt.ylim(ymin, ymax)
+
+        plt.show()
 
     
 
