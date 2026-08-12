@@ -163,9 +163,18 @@ class GPA:
         self.cy = float(cy)
 
 
-    
-    def evaluate(self, mtol, ftol, ptol, rtol=None, mask=None,
-                moments=["G1", "G2", "G3", "G4"]):
+
+    def evaluate(
+        self,
+        magnitude_threshold=None,
+        magnitude_tolerance=None,
+        mtol=None,
+        ftol=None,
+        ptol=None,
+        rtol=None,
+        mask=None,
+        moments=None,
+    ):
         """
         Perform Gradient Pattern Analysis (GPA) and compute the selected
         gradient moments.
@@ -179,33 +188,56 @@ class GPA:
         2. Group gradient vectors according to the radial distance of their
         positions from the analysis center.
 
-        3. Identify and remove radially symmetric gradient-vector pairs,
-        preserving only the asymmetric contributions.
+        3. Remove gradient vectors whose magnitudes are below the specified
+        relative magnitude threshold.
 
-        4. Compute the selected GPA moments:
+        4. Identify and remove radially symmetric gradient-vector pairs
+        based on their magnitude, orientation, and spatial position.
+
+        5. Compute the selected GPA moments:
 
             G1, G2, G3, and G4.
 
         Parameters
         ----------
-        mtol : float
-            Magnitude tolerance used to compare the magnitudes of symmetric
-            gradient vectors.
+        magnitude_threshold : float, optional
+            Relative magnitude threshold, expressed as a fraction of the
+            maximum gradient magnitude. Gradient vectors whose magnitude
+            is below or equal to this threshold are removed.
+
+        magnitude_tolerance : float, optional
+            Relative tolerance, expressed as a fraction of the maximum
+            gradient magnitude, used to determine whether two gradient
+            vectors have sufficiently similar magnitudes to be considered
+            a symmetric pair.
+
+        mtol : float, optional
+            Deprecated compatibility parameter. If provided, its value is
+            used for both ``magnitude_threshold`` and
+            ``magnitude_tolerance`` when those parameters are not
+            explicitly provided.
+
         ftol : float
             Angular tolerance used to compare the orientations of opposite
             gradient vectors.
+
         ptol : float
-            Position tolerance used to identify radially opposite gradient vectors.
+            Position tolerance used to group gradient vectors according
+            to their radial distance from the analysis center.
 
         rtol : float, optional
-            Radial distance tolerance used to group gradient vectors into the same
-            radial shell. If not provided, the value of `ptol` is used by default.
+            Spatial tolerance used to determine whether two gradient
+            vectors are approximately opposite with respect to the
+            analysis center. If ``None``, ``ptol`` is used.
+
         mask : numpy.ndarray, optional
-            Binary mask defining the valid image region. If ``None``, the
-            entire image is considered.
+            Binary mask defining the valid image region. If ``None``,
+            the entire image is considered.
+
         moments : list of str, optional
             GPA moments to compute. Valid options are ``"G1"``, ``"G2"``,
-            ``"G3"``, and ``"G4"``.
+            ``"G3"``, and ``"G4"``. If ``None``, all four moments are
+            computed.
 
         Returns
         -------
@@ -215,6 +247,37 @@ class GPA:
 
         if rtol is None:
             rtol = ptol
+
+        if moments is None:
+            moments = ["G1", "G2", "G3", "G4"]
+
+        if mtol is not None:
+
+            if magnitude_threshold is None:
+                magnitude_threshold = mtol
+
+            if magnitude_tolerance is None:
+                magnitude_tolerance = mtol
+
+        if magnitude_threshold is None:
+            raise ValueError(
+                "magnitude_threshold must be provided."
+            )
+
+        if magnitude_tolerance is None:
+            raise ValueError(
+                "magnitude_tolerance must be provided."
+            )
+
+        if ftol is None:
+            raise ValueError(
+                "ftol must be provided."
+            )
+
+        if ptol is None:
+            raise ValueError(
+                "ptol must be provided."
+            )
 
         self.mask = mask
         if mask is None:
@@ -254,7 +317,8 @@ class GPA:
         self._update_asymmetric_mat(
             unique_radii,
             radial_distance_map,
-            mtol,
+            magnitude_threshold,
+            magnitude_tolerance,
             ftol,
             ptol,
             rtol
@@ -453,9 +517,17 @@ class GPA:
 
 
 
-    def _update_asymmetric_mat(self, unique_radii,
-                           radial_distance_map,
-                           mtol, ftol, ptol, rtol):
+    def _update_asymmetric_mat(
+        self,
+        unique_radii,
+        radial_distance_map,
+        magnitude_threshold,
+        magnitude_tolerance,
+        ftol,
+        ptol,
+        rtol,
+        mtol=None
+    ):
         """
         Remove radially symmetric contributions from the gradient field.
 
@@ -474,25 +546,33 @@ class GPA:
         the algorithm groups gradient vectors according to the radial
         distance of their positions from the analysis center.
 
-        Two gradient vectors within the same radial group are considered
-        radially symmetric if they simultaneously satisfy:
+        Gradient vectors with a magnitude below the specified relative
+        threshold are first removed. The remaining vectors within the
+        same radial group are then compared pairwise.
+
+        Two gradient vectors are considered radially symmetric if they
+        simultaneously satisfy:
 
         1. Similar gradient magnitudes:
 
-            ||∇I₁| - |∇I₂|| ≤ mtol · max(|∇I|)
+            ||∇I₁| - |∇I₂|| ≤ magnitude_tolerance · max(|∇I|)
 
         2. Approximately opposite orientations:
 
             |Δθ - π| ≤ ftol
 
-        where
+        3. Approximately opposite spatial positions with respect to
+        the analysis center:
 
-            Δθ
+            |x₁ + x₂ - 2cx| ≤ rtol
 
-        is the angular difference between the two gradient vectors.
+            |y₁ + y₂ - 2cy| ≤ rtol
 
-        When these conditions are satisfied, both vectors are removed by
-        setting
+        where Δθ is the angular difference between the two gradient
+        vectors and (cx, cy) is the analysis center.
+
+        When these conditions are satisfied, both vectors are removed
+        by setting
 
             Gx = 0
             Gy = 0
@@ -501,8 +581,8 @@ class GPA:
 
             ∇I_asym = (Gx_asym, Gy_asym),
 
-        which contains only the gradient vectors associated with asymmetric
-        image structures.
+        which contains only the gradient vectors associated with
+        asymmetric image structures.
 
         Parameters
         ----------
@@ -510,21 +590,34 @@ class GPA:
             Array containing the distinct radial distances.
 
         radial_distance_map : numpy.ndarray
-            Integer-valued radial distance of every pixel from the analysis
-            center.
+            Integer-valued radial distance of every pixel from the
+            analysis center.
 
-        mtol : float
-            Magnitude tolerance for comparing gradient vectors.
+        magnitude_threshold : float
+            Relative magnitude threshold, expressed as a fraction of
+            the maximum gradient magnitude. Gradient vectors whose
+            magnitude is below or equal to this threshold are removed
+            from the gradient field.
+
+        magnitude_tolerance : float
+            Relative tolerance, expressed as a fraction of the maximum
+            gradient magnitude, used to determine whether two gradient
+            vectors have sufficiently similar magnitudes to be considered
+            a symmetric pair.
 
         ftol : float
-            Angular tolerance for identifying opposite gradient vectors.
+            Angular tolerance used to identify gradient vectors with
+            approximately opposite orientations.
 
         ptol : float
-            Position tolerance used to identify radially opposite gradient vectors.
+            Position tolerance used when grouping gradient vectors
+            according to their radial distance from the analysis center.
 
         rtol : float, optional
-            Radial distance tolerance used to group gradient vectors into the same
-            radial shell. If not provided, the value of `ptol` is used by default.
+            Spatial tolerance used to determine whether two gradient
+            vectors are approximately opposite with respect to the
+            analysis center. If not provided, the value of `ptol` is
+            used by default.
         """
 
         # Convert the arrays to the same data types used by the
@@ -534,9 +627,11 @@ class GPA:
         radial_distance_map = np.asarray(radial_distance_map, dtype=np.int32)
 
         # Convert the tolerance values to float32.
-        mtol = np.float32(mtol)
+        if mtol is not None:
+            mtol = np.float32(mtol)
         ftol = np.float32(ftol)
         ptol = np.float32(ptol)
+        rtol = np.float32(rtol)
 
         removedP = []
 
@@ -561,10 +656,7 @@ class GPA:
             x = np.array(x2, dtype=np.int32)
             y = np.array(y2, dtype=np.int32)
 
-            # print('radius:', radius, 'x:', x, 'y:', y)
-
             lx = len(x)
-            # print('lx:', lx)
 
             # Compare every pair of gradient vectors in the
             # current radial group.
@@ -574,28 +666,23 @@ class GPA:
                 px = x[i]
                 py = y[i]
 
-                # Remove gradient vectors whose magnitude is
-                # below the specified threshold.
-                if (self.mods[py, px] / self.maxGrad) <= mtol:
-                    # print('Removing vector at (px, py):', px, py, 'due to low magnitude.')
-                    self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
-                    self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
-
-                # Ignore masked pixels.
-                # if mask[py, px] == 0:
-                #     continue
-
-
-                # print(f"\ni={i}, ({px},{py}), mask={mask[py,px]}")
-
                 if mask[py, px] == 0:
-                    # print("  -> outer continue")
                     continue
+
 
                 if (
                     self.gradient_asymmetric_dx[py, px] == 0.0
                     and self.gradient_asymmetric_dy[py, px] == 0.0
                 ):
+                    continue
+
+                # Remove gradient vectors whose magnitude is
+                # below the specified threshold.
+                if (self.mods[py, px] / self.maxGrad) <= magnitude_threshold:
+
+                    self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
+                    self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
+
                     continue
 
                 # Compare the current vector with the remaining
@@ -609,7 +696,6 @@ class GPA:
                     #     continue
 
                     if mask[py2, px2] == 0:
-                        # print(f"    j={j}, ({px2},{py2}) -> inner continue")
                         continue
 
                     if (
@@ -618,14 +704,10 @@ class GPA:
                     ):
                         continue
 
-                    # cont += 1
-                    # print(f"    compare {cont}: ({px},{py}) x ({px2},{py2})")
-
-
                     # Check whether the gradient magnitudes are similar.
                     # cont +=1
-                    if abs(self.mods[py, px] - self.mods[py2, px2]) <= mtol * self.maxGrad:
-
+                    if abs(self.mods[py, px] - self.mods[py2, px2]) <= magnitude_tolerance * self.maxGrad:
+                    
                         # Check whether the gradient vectors have
                         # approximately opposite orientations.
                         angle_opposite = (
@@ -645,12 +727,9 @@ class GPA:
                             and
                             abs((py + py2) - 2*self.cy) <= rtol
                         )
-                        # print(f"    position_opposite: {position_opposite}")
 
                         if angle_opposite and position_opposite:
 
-                            # Remove both vectors since they represent
-                            # a radially symmetric contribution.
                             self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
                             self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
 
@@ -658,7 +737,6 @@ class GPA:
                             self.gradient_asymmetric_dy[py2, px2] = np.float32(0.0)
 
                             break
-            # print(cont)
 
         # Preserve compatibility with the original Cython implementation.
         if len(removedP) > 0:
@@ -763,9 +841,6 @@ class GPA:
 
         self.totalAssimetric = len(naozero)
 
-        print(self.totalVet)
-        print(self.totalAssimetric)
-
         if self.totalAssimetric < 3:
             self.n_edges = 0
             G1 = 0.0
@@ -821,8 +896,6 @@ class GPA:
         self.n_edges = len(indices) / 2.0
 
         # GPA / Fragmentation
-
-        print("n_edges:", self.n_edges)
 
         G1 = (
             self.n_edges - self.totalAssimetric
@@ -947,7 +1020,7 @@ class GPA:
         return vectorial_diversity
 
 
-    
+
     def plot_delaunay_triangulation(self):
         """
         Plot the asymmetric gradient field and its Delaunay triangulation.
@@ -970,13 +1043,12 @@ class GPA:
         purposes only; their original values are not modified.
         """
 
-
         gx = self.gradient_asymmetric_dx
         gy = self.gradient_asymmetric_dy
 
         valid = (
-            self.mask.astype(bool) &
-            ((gx != 0) | (gy != 0))
+            self.mask.astype(bool)
+            & ((gx != 0) | (gy != 0))
         )
 
         has_vectors = np.any(valid)
@@ -1010,23 +1082,7 @@ class GPA:
             xmin = 0
             xmax = self.cols
 
-        # Normalize vectors if requested.
-        if has_vectors:
-
-            factor = 1.0 / (
-                2.0 * np.sqrt(
-                    np.abs(np.max(gx))**2 +
-                    np.abs(np.max(gy))**2
-                )
-            )
-
-            u = gx * factor
-            v = gy * factor
-
-        else:
-
-            print("No asymmetric gradient vectors remaining.")
-
+        # Create figure
         plt.figure(figsize=(5, 5))
 
         plt.imshow(
@@ -1041,31 +1097,62 @@ class GPA:
             ]
         )
 
-        if has_vectors:
+        # No asymmetric vectors
+        if not has_vectors:
 
-            plt.quiver(
-                x[valid],
-                y[valid],
-                u[valid],
-                v[valid],
-                color="red",
-                angles="xy",
-                scale_units="xy",
-                scale=1
-            )
-
-            plt.title("Asymmetric Gradient Field + Delaunay Triangulation")
-
-        else:
+            print("No asymmetric gradient vectors remaining.")
 
             plt.title(
                 "Asymmetric Gradient Field\n"
                 "No asymmetric vectors remaining"
             )
 
+            plt.scatter(
+                self.cx + 0.5,
+                self.cy + 0.5,
+                marker="x",
+                color="blue",
+                s=150,
+                linewidths=2
+            )
+
+            plt.xlabel("x")
+            plt.ylabel("y")
+
+            plt.xlim(xmin, xmax)
+            plt.ylim(ymin, ymax)
+
+            plt.show()
+
+            return
+
+        # Normalize vectors for visualization
+        factor = 1.0 / (
+            2.0 * np.sqrt(
+                np.abs(np.max(gx))**2 +
+                np.abs(np.max(gy))**2
+            )
+        )
+
+        u = gx * factor
+        v = gy * factor
+
+        # Plot asymmetric gradient vectors
+        plt.quiver(
+            x[valid],
+            y[valid],
+            u[valid],
+            v[valid],
+            color="red",
+            angles="xy",
+            scale_units="xy",
+            scale=1
+        )
+
+        # Delaunay triangulation
         plt.triplot(
-            self.vvx + 0.5,                  
-            self.vvy + 0.5,                  
+            self.vvx + 0.5,
+            self.vvy + 0.5,
             self.triangles.simplices,
             color="red"
         )
@@ -1073,12 +1160,13 @@ class GPA:
         # Points used in triangulation
 
         plt.scatter(
-            self.vvx + 0.5,                  
-            self.vvy + 0.5,                  
+            self.vvx + 0.5,
+            self.vvy + 0.5,
             s=10,
             zorder=3
         )
 
+        # Analysis center
         plt.scatter(
             self.cx + 0.5,
             self.cy + 0.5,
@@ -1086,6 +1174,10 @@ class GPA:
             color="blue",
             s=150,
             linewidths=2
+        )
+
+        plt.title(
+            "Asymmetric Gradient Field + Delaunay Triangulation"
         )
 
         plt.xlabel("x")
