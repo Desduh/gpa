@@ -1021,26 +1021,34 @@ class GPA:
 
 
 
-    def plot_delaunay_triangulation(self):
+    def plot_delaunay_triangulation(
+        self,
+        show_image=True,
+        show_scale=True,
+        show_center=True,
+        line_color="red"
+    ):
         """
         Plot the asymmetric gradient field and its Delaunay triangulation.
 
-        The asymmetric gradient vectors are displayed over the original
-        image, together with the Delaunay triangulation constructed from
-        the spatial positions of the gradient-field points.
+        The triangulation is constructed from the positions of the
+        remaining asymmetric gradient vectors.
 
-        All spatial coordinates are shifted by +0.5 in both x and y
-        directions to align the vector field and triangulation with the
-        pixel-centered coordinate system used for the image.
+        Parameters
+        ----------
+        show_image : bool, default=True
+            If True, display the original matrix as the background.
 
-        The plotting region is automatically restricted to the region
-        containing valid gradient vectors, with a small margin for
-        visualization.
+        show_scale : bool, default=True
+            If True, display the x and y axes, including tick marks and
+            labels. If False, hide the ticks and labels while preserving
+            the plot area.
 
-        Notes
-        -----
-        The asymmetric gradient vectors are rescaled for visualization
-        purposes only; their original values are not modified.
+        show_center : bool, default=True
+            If True, display the analysis center.
+
+        line_color : str, default="red"
+            Color of the Delaunay triangulation lines.
         """
 
         gx = self.gradient_asymmetric_dx
@@ -1053,6 +1061,7 @@ class GPA:
 
         has_vectors = np.any(valid)
 
+        # Pixel-centered coordinates
         y, x = np.mgrid[
             0:self.rows,
             0:self.cols
@@ -1061,7 +1070,8 @@ class GPA:
         x = x + 0.5
         y = y + 0.5
 
-        # Determine plotting region.
+        # Determine plotting region
+
         if max(self.rows, self.cols) > 50 and has_vectors:
 
             rows, cols = np.where(valid)
@@ -1082,142 +1092,176 @@ class GPA:
             xmin = 0
             xmax = self.cols
 
-        # Create figure
-        plt.figure(figsize=(5, 5))
-
-        plt.imshow(
-            self.matrix[ymin:ymax, xmin:xmax],
-            cmap="gray",
-            origin="lower",
-            extent=[
-                xmin,
-                xmax,
-                ymin,
-                ymax
-            ]
-        )
-
+        
         # No asymmetric vectors
+
         if not has_vectors:
 
             print("No asymmetric gradient vectors remaining.")
-
-            plt.title(
-                "Asymmetric Gradient Field\n"
-                "No asymmetric vectors remaining"
-            )
-
-            plt.scatter(
-                self.cx + 0.5,
-                self.cy + 0.5,
-                marker="x",
-                color="blue",
-                s=150,
-                linewidths=2
-            )
-
-            plt.xlabel("x")
-            plt.ylabel("y")
-
-            plt.xlim(xmin, xmax)
-            plt.ylim(ymin, ymax)
-
-            plt.show()
-
             return
 
+        # Figure
+
+        fig, ax = plt.subplots(figsize=(5, 5))
+
+        # Background image
+
+        if show_image:
+
+            ax.imshow(
+                self.matrix[ymin:ymax, xmin:xmax],
+                cmap="gray",
+                origin="lower",
+                extent=[
+                    xmin,
+                    xmax,
+                    ymin,
+                    ymax
+                ]
+            )
+
         # Normalize vectors for visualization
+
+        max_gx = np.max(np.abs(gx))
+        max_gy = np.max(np.abs(gy))
+
         factor = 1.0 / (
             2.0 * np.sqrt(
-                np.abs(np.max(gx))**2 +
-                np.abs(np.max(gy))**2
+                max_gx**2 +
+                max_gy**2
             )
         )
 
         u = gx * factor
         v = gy * factor
 
-        # Plot asymmetric gradient vectors
-        plt.quiver(
+        # Asymmetric gradient vectors
+
+        ax.quiver(
             x[valid],
             y[valid],
             u[valid],
             v[valid],
-            color="red",
+            color=line_color,
             angles="xy",
             scale_units="xy",
-            scale=1
+            scale=1,
+            width=0.003
         )
 
         # Delaunay triangulation
-        plt.triplot(
+
+        ax.triplot(
             self.vvx + 0.5,
             self.vvy + 0.5,
             self.triangles.simplices,
-            color="red"
+            color=line_color,
+            linewidth=0.8
         )
 
-        # Points used in triangulation
+        # Triangulation points
 
-        plt.scatter(
+        ax.scatter(
             self.vvx + 0.5,
             self.vvy + 0.5,
-            s=10,
+            s=8,
+            color=line_color,
             zorder=3
         )
 
         # Analysis center
-        plt.scatter(
-            self.cx + 0.5,
-            self.cy + 0.5,
-            marker="x",
-            color="blue",
-            s=150,
-            linewidths=2
-        )
 
-        plt.title(
-            "Asymmetric Gradient Field + Delaunay Triangulation"
-        )
+        if show_center:
 
-        plt.xlabel("x")
-        plt.ylabel("y")
+            ax.scatter(
+                self.cx + 0.5,
+                self.cy + 0.5,
+                marker="x",
+                color="blue",
+                s=100,
+                linewidths=2,
+                zorder=4
+            )
 
-        plt.xlim(xmin, xmax)
-        plt.ylim(ymin, ymax)
+        # Plot limits
+
+        margin = 0.5
+
+        ax.set_xlim(xmin - margin, xmax + margin)
+        ax.set_ylim(ymin - margin, ymax + margin)
+
+        # Minimal style
+
+        if show_scale:
+
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+
+        else:
+
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+            ax.set_xlabel("")
+            ax.set_ylabel("")
+
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(0.8)
+
+        ax.set_aspect("equal")
+
+        plt.tight_layout(pad=0)
 
         plt.show()
 
-    
-
-    def plot_gradient_field(self, fixed_length=True):
+    def plot_gradient_field(
+        self,
+        fixed_length=True,
+        show_image=True,
+        show_scale=True,
+        show_center=True,
+        color="red"
+    ):
         """
-        Display the image gradient field as a vector plot.
+        Plot the image gradient field as a vector field.
 
         Each arrow represents a gradient vector:
 
             ∇I = (Gx, Gy)
 
-        When ``fixed_length=True``, all arrows are normalized to the same
-        length so that only the gradient orientations are visualized.
-
-        When ``fixed_length=False``, the arrow lengths are proportional to
-        the gradient magnitudes:
-
-            |∇I| = sqrt(Gx² + Gy²)
-
         Parameters
         ----------
         fixed_length : bool, default=True
-            If ``True``, normalize all gradient vectors to unit length for
-            visualization. Otherwise, display vectors with their original
-            magnitudes.
+            If True, normalize all vectors to the same length so that
+            only their orientations are represented. If False, preserve
+            the relative gradient magnitudes.
+
+        show_image : bool, default=True
+            If True, display the original matrix as the background of
+            the gradient field.
+
+        show_scale : bool, default=True
+            If True, display the x and y axes, including tick marks and
+            labels. If False, hide the ticks and labels while preserving
+            the plot area.
+
+        show_center : bool, default=True
+            If True, display the analysis center.
+
+        color : str, default="red"
+            Color of the gradient vectors.
         """
+
+        # Pixels where vectors will be displayed
+
+        valid = self.mask.astype(bool)
 
         gx = self.gradient_dx
         gy = self.gradient_dy
 
-        # Create a coordinate grid for the image
+        # Coordinate grid
+
         y, x = np.mgrid[
             0:self.rows,
             0:self.cols
@@ -1226,28 +1270,37 @@ class GPA:
         x = x + 0.5
         y = y + 0.5
 
-        # Normalize the vectors or preserve their original magnitudes
+        # Normalize vectors or preserve magnitudes
+
         if fixed_length:
 
             magnitude = np.sqrt(gx**2 + gy**2)
 
-            # Avoid division by zero in regions with zero gradient
+            # Avoid division by zero
             magnitude[magnitude == 0] = 1
 
-            scale = 0.8
+            scale = 0.5
 
             u = (gx / magnitude) * scale
             v = (gy / magnitude) * scale
 
         else:
 
-            u = gx
-            v = gy
+            max_gx = np.max(np.abs(gx))
+            max_gy = np.max(np.abs(gy))
 
-        # Pixels where vectors will be displayed
-        valid = self.mask.astype(bool)
+            factor = 1.0 / (
+                2.0 * np.sqrt(
+                    max_gx**2 +
+                    max_gy**2
+                )
+            )
+
+            u = gx * factor
+            v = gy * factor
 
         # Bounding box of the mask
+
         rows, cols = np.where(valid)
 
         margin = 2
@@ -1258,85 +1311,135 @@ class GPA:
         xmin = max(cols.min() - margin, 0)
         xmax = min(cols.max() + margin + 1, self.cols)
 
-        plt.figure(figsize=(5, 5))
-        # Display cropped image while keeping original coordinates
-        plt.imshow(
-            self.matrix[ymin:ymax, xmin:xmax],
-            cmap="gray",
-            origin="lower",
-            extent=[
-                xmin,
-                xmax,
-                ymin,
-                ymax
-            ]
-        )
+        # Figure
 
+        fig, ax = plt.subplots(figsize=(5, 5))
 
-        # Plot gradient vectors using original coordinates
-        plt.quiver(
+        # Background image
+
+        if show_image:
+
+            ax.imshow(
+                self.matrix[ymin:ymax, xmin:xmax],
+                cmap="gray",
+                origin="lower",
+                extent=[
+                    xmin,
+                    xmax,
+                    ymin,
+                    ymax
+                ]
+            )
+
+        # Gradient vectors
+
+        ax.quiver(
             x[valid],
             y[valid],
             u[valid],
             v[valid],
-            color="red",
+            color=color,
             angles="xy",
             scale_units="xy",
             scale=1
         )
 
+        # Analysis center
 
-        # Plot analysis center using original coordinates
-        plt.scatter(
-            self.cx + 0.5,
-            self.cy + 0.5,
-            marker="x",
-            color="blue",
-            s=150,
-            linewidths=2
-        )
+        if show_center:
 
+            ax.scatter(
+                self.cx + 0.5,
+                self.cy + 0.5,
+                marker="x",
+                color="blue",
+                s=150,
+                linewidths=2
+            )
 
-        plt.title("Gradient Field")
-        plt.xlabel("x")
-        plt.ylabel("y")
+        # Plot limits
 
+        margin = 0.5
 
-        # Preserve original coordinate system
-        plt.xlim(
-            xmin,
-            xmax
-        )
+        ax.set_xlim(xmin - margin, xmax + margin)
+        ax.set_ylim(ymin - margin, ymax + margin)
 
-        plt.ylim(
-            ymin,
-            ymax
-        )
+        # Minimal style
 
+        if show_scale:
+
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
+
+        else:
+
+            # Remove ticks and labels
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+            ax.set_xlabel("")
+            ax.set_ylabel("")
+
+            # Keep the boundary of the image/plot
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(0.8)
+
+        ax.set_aspect("equal")
+
+        plt.tight_layout(pad=0)
 
         plt.show()
 
+        
 
-    def plot_asymmetric_gradient_field(self, fixed_length=True):
+    def plot_asymmetric_gradient_field(
+        self,
+        fixed_length=True,
+        show_image=True,
+        show_scale=True,
+        show_center=True,
+        color="red"
+    ):
         """
-        Plot the remaining asymmetric gradient vectors after
-        removing radially symmetric contributions.
+        Plot the asymmetric gradient field obtained after removing
+        symmetric gradient contributions.
 
         Parameters
         ----------
         fixed_length : bool, default=True
-            If True, normalize vectors to show only orientations.
+            If True, normalize all vectors to the same length so that
+            only their orientations are represented. If False, preserve
+            the relative gradient magnitudes.
+
+        show_image : bool, default=True
+            If True, display the original matrix as the background of
+            the gradient field.
+
+        show_scale : bool, default=True
+            If True, display the x and y axes, including tick marks and
+            labels. If False, hide the ticks and labels while preserving
+            the plot area.
+
+        show_center : bool, default=True
+            If True, display the analysis center used to identify
+            symmetric gradient contributions.
+
+        color : str, default="red"
+            Color of the asymmetric gradient vectors.
         """
 
         gx = self.gradient_asymmetric_dx
         gy = self.gradient_asymmetric_dy
 
         valid = (
-            self.mask.astype(bool) &
-            ((gx != 0) | (gy != 0))
+            self.mask.astype(bool)
+            & ((gx != 0) | (gy != 0))
         )
 
         has_vectors = np.any(valid)
+
+        # Coordinate grid
 
         y, x = np.mgrid[
             0:self.rows,
@@ -1346,7 +1449,8 @@ class GPA:
         x = x + 0.5
         y = y + 0.5
 
-        # Determine plotting region.
+        # Determine plotting region
+
         if max(self.rows, self.cols) > 50 and has_vectors:
 
             rows, cols = np.where(valid)
@@ -1367,78 +1471,120 @@ class GPA:
             xmin = 0
             xmax = self.cols
 
-        # Normalize vectors if requested.
-        if has_vectors:
+        # Normalize vectors if requested
 
+        if has_vectors:
+            
             if fixed_length:
 
                 magnitude = np.sqrt(gx**2 + gy**2)
 
+                # Avoid division by zero
                 magnitude[magnitude == 0] = 1
 
-                scale = 0.8
+                scale = 0.5
 
                 u = (gx / magnitude) * scale
                 v = (gy / magnitude) * scale
 
             else:
 
-                u = gx
-                v = gy
+                max_gx = np.max(np.abs(gx))
+                max_gy = np.max(np.abs(gy))
+
+                factor = 1.0 / (
+                    2.0 * np.sqrt(
+                        max_gx**2 +
+                        max_gy**2
+                    )
+                )
+
+                u = gx * factor
+                v = gy * factor
 
         else:
 
             print("No asymmetric gradient vectors remaining.")
+            return
 
-        plt.figure(figsize=(5, 5))
+        # Figure
 
-        plt.imshow(
-            self.matrix[ymin:ymax, xmin:xmax],
-            cmap="gray",
-            origin="lower",
-            extent=[
-                xmin,
-                xmax,
-                ymin,
-                ymax
-            ]
-        )
+        fig, ax = plt.subplots(figsize=(5, 5))
+
+        # Background image
+
+        if show_image:
+
+            ax.imshow(
+                self.matrix[ymin:ymax, xmin:xmax],
+                cmap="gray",
+                origin="lower",
+                extent=[
+                    xmin,
+                    xmax,
+                    ymin,
+                    ymax
+                ]
+            )
+
+        # Asymmetric gradient vectors
 
         if has_vectors:
 
-            plt.quiver(
+            ax.quiver(
                 x[valid],
                 y[valid],
                 u[valid],
                 v[valid],
-                color="red",
+                color=color,
                 angles="xy",
                 scale_units="xy",
                 scale=1
             )
 
-            plt.title("Asymmetric Gradient Field")
+        # Analysis center
+
+        if show_center:
+
+            ax.scatter(
+                self.cx + 0.5,
+                self.cy + 0.5,
+                marker="x",
+                color="blue",
+                s=150,
+                linewidths=2,
+                zorder=4
+            )
+
+        # Plot limits
+
+        margin = 0.5
+
+        ax.set_xlim(xmin - margin, xmax + margin)
+        ax.set_ylim(ymin - margin, ymax + margin)
+
+        # Minimal style
+
+        if show_scale:
+
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
 
         else:
 
-            plt.title(
-                "Asymmetric Gradient Field\n"
-                "No asymmetric vectors remaining"
-            )
+            ax.set_xticks([])
+            ax.set_yticks([])
 
-        plt.scatter(
-            self.cx + 0.5,
-            self.cy + 0.5,
-            marker="x",
-            color="blue",
-            s=150,
-            linewidths=2
-        )
+            ax.set_xlabel("")
+            ax.set_ylabel("")
 
-        plt.xlabel("x")
-        plt.ylabel("y")
+            # Keep the plot boundary
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(0.8)
 
-        plt.xlim(xmin, xmax)
-        plt.ylim(ymin, ymax)
+        ax.set_aspect("equal")
+
+        plt.tight_layout(pad=0)
 
         plt.show()
