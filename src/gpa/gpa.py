@@ -21,6 +21,7 @@ plt.rcParams.update({
     "ytick.major.size": 5,
 })
 
+
 class GPA:
     def __init__(self, matrix: NDArray[np.number]):
         """
@@ -39,67 +40,61 @@ class GPA:
         -------
         >>> gpa = GPA(image)
         >>> gpa.setPosition(cx, cy)
-        >>> results = gpa.evaluate(
-        ...     mtol=0.02,
-        ...     ftol=0.03,
-        ...     ptol=0.01
-        ... )
+        >>> results = gpa.evaluate()
 
         The analysis center is defined with ``setPosition(cx, cy)``, where
         ``(cx, cy)`` corresponds to the point from which radial symmetry is
         evaluated. By default, the geometric center of the image is used.
 
-        The tolerance parameters control the removal of radially symmetric
-        gradient vectors:
-
-        - ``mtol`` : Magnitude tolerance. Maximum allowed difference between the
-        magnitudes of two gradient vectors for them to be considered symmetric.
-        - ``ftol`` : Angular (phase) tolerance. Maximum allowed difference
-        between the orientations (phases) of two gradient vectors.
-        - ``ptol`` : Position tolerance. Maximum allowed deviation from perfect
-        radial symmetry between two vectors.
-
-        The ``evaluate()`` method returns a dictionary containing the requested
-        GPA moments, for example:
-
-        >>> {
-        ...     "G1": 0.81,
-        ...     "G2": 0.34,
-        ...     "G3": 1.25,
-        ...     "G4": 4.12
-        ... }
-
         Parameters
         ----------
-        matrix : numpy.ndarray
-            Two-dimensional input image :math:`I(x, y)`. The input must be a
-            2D NumPy array.
+        matrix : array-like
+            Two-dimensional input image :math:`I(x, y)`. The input can be
+            provided as a NumPy array or as any array-like object that can
+            be converted to a NumPy array, such as a nested Python list.
+
+            The matrix must contain real numerical values and have at least
+            3 rows and 3 columns.
         """
-        
+
+        # Convert the input to a NumPy array.
+        #
+        # This allows the class to accept both NumPy arrays and
+        # manually defined matrices, such as nested Python lists.
+        try:
+            matrix = np.asarray(matrix)
+        except Exception as exc:
+            raise TypeError(
+                "Input matrix must be convertible to a NumPy array."
+            ) from exc
+
+        # The matrix must contain real numerical values.
         if not np.issubdtype(matrix.dtype, np.number) or np.iscomplexobj(matrix):
             raise TypeError(
                 "Input matrix must contain only real numerical values."
             )
 
+        # The input must be two-dimensional.
         if matrix.ndim != 2:
             raise ValueError(
                 "Input matrix must be two-dimensional."
             )
-        
-        # Convert only the data type without creating a copy if unnecessary
+
+        # GPA requires a minimum matrix size of 3 × 3.
+        if matrix.shape[0] < 3 or matrix.shape[1] < 3:
+            raise ValueError(
+                "Input matrix must have at least 3 rows and 3 columns."
+            )
+
+        # Convert the input matrix to float32.
         self.matrix = matrix.astype(np.float32, copy=False)
-
-
-        # Input image converted to float32
-        self.matrix = np.asarray(matrix, dtype=np.float32)
-
-        # Coordinates of the image center
-        self.cx = (len(self.matrix) - 1) / 2
-        self.cy = (len(self.matrix[0]) - 1) / 2
 
         # Image dimensions
         self.rows, self.cols = self.matrix.shape
 
+        # Coordinates of the image center
+        self.cx = (self.cols - 1) / 2
+        self.cy = (self.rows - 1) / 2
 
         # Gradient field components:
         #
@@ -108,12 +103,10 @@ class GPA:
         self.gradient_dx = None
         self.gradient_dy = None
 
-
         # Gradient field after removing
         # radially symmetric vectors
         self.gradient_asymmetric_dx = None
         self.gradient_asymmetric_dy = None
-
 
         # Gradient properties:
         #
@@ -126,24 +119,23 @@ class GPA:
         self.phases = None
         self.mods = None
 
-
         # Coordinates of the removed points and
         # the remaining asymmetric points
         self.removedP = np.empty((0, 2), dtype=np.int32)
         self.nremovedP = np.empty((0, 2), dtype=np.int32)
-
 
         # Total number of gradient vectors and
         # remaining asymmetric vectors
         self.totalVet = self.rows * self.cols
         self.totalAssimetric = self.rows * self.cols
 
-
         # Measure of gradient orientation diversity
         self.phaseDiversity = 0.0
 
         # Maximum gradient magnitude found in the image
         self.maxGrad = 0.0
+
+
 
     def setPosition(self, cx: float, cy: float):
         """
@@ -166,14 +158,14 @@ class GPA:
 
     def evaluate(
         self,
-        magnitude_threshold=None,
+        magnitude_threshold=0.01,
         magnitude_tolerance=None,
-        mtol=None,
-        ftol=None,
-        ptol=None,
-        rtol=None,
+        angle_tolerance=None,
+        radial_distance_tolerance=0.5,
+        symmetric_position_tolerance=0.01,
+        opposite_vector_tolerance=0.3,
         mask=None,
-        moments=None,
+        moments=["G1", "G2", "G3", "G4"],
     ):
         """
         Perform Gradient Pattern Analysis (GPA) and compute the selected
@@ -192,7 +184,12 @@ class GPA:
         relative magnitude threshold.
 
         4. Identify and remove radially symmetric gradient-vector pairs
-        based on their magnitude, orientation, and spatial position.
+        according to either:
+
+        - a vector-sum criterion, controlled by ``opposite_vector_tolerance``;
+            or
+        - separate magnitude and angular criteria, controlled by
+            ``magnitude_tolerance`` and ``angle_tolerance``.
 
         5. Compute the selected GPA moments:
 
@@ -201,42 +198,69 @@ class GPA:
         Parameters
         ----------
         magnitude_threshold : float, optional
-            Relative magnitude threshold, expressed as a fraction of the
-            maximum gradient magnitude. Gradient vectors whose magnitude
-            is below or equal to this threshold are removed.
+            Relative threshold for the gradient magnitude (fraction of the
+            maximum gradient magnitude, dimensionless). Vectors satisfying
 
-        magnitude_tolerance : float, optional
-            Relative tolerance, expressed as a fraction of the maximum
-            gradient magnitude, used to determine whether two gradient
-            vectors have sufficiently similar magnitudes to be considered
-            a symmetric pair.
+                |∇I| / max(|∇I|) <= magnitude_threshold
 
-        mtol : float, optional
-            Deprecated compatibility parameter. If provided, its value is
-            used for both ``magnitude_threshold`` and
-            ``magnitude_tolerance`` when those parameters are not
-            explicitly provided.
+            are removed. For example, ``0.01`` corresponds to 1%.
 
-        ftol : float
-            Angular tolerance used to compare the orientations of opposite
-            gradient vectors.
+        magnitude_tolerance : float or None, optional
+            Relative tolerance for comparing the magnitudes of two gradient
+            vectors (fraction of the maximum gradient magnitude, dimensionless).
+            It is used only when ``opposite_vector_tolerance`` is ``None``.
+            For example, ``0.05`` corresponds to 5%.
 
-        ptol : float
-            Position tolerance used to group gradient vectors according
-            to their radial distance from the analysis center.
+        angle_tolerance : float or None, optional
+            Angular tolerance for comparing gradient-vector orientations
+            (degrees). It is used only when ``opposite_vector_tolerance`` is
+            ``None``. The value is internally converted to radians.
+            For example, ``5.0`` corresponds to a tolerance of ±5 degrees
+            around the opposite orientation.
 
-        rtol : float, optional
-            Spatial tolerance used to determine whether two gradient
-            vectors are approximately opposite with respect to the
-            analysis center. If ``None``, ``ptol`` is used.
+        radial_distance_tolerance : float, optional
+            Tolerance used when grouping pixels according to their radial
+            distance from the analysis center (pixels). Pixels whose radial
+            distances differ from a given radial group by at most this value
+            are considered part of the same group.
 
-        mask : numpy.ndarray, optional
-            Binary mask defining the valid image region. If ``None``,
-            the entire image is considered.
+        symmetric_position_tolerance : float, optional
+            Relative spatial tolerance used to determine whether two pixels
+            are approximately opposite with respect to the analysis center
+            (percentage of the image dimensions, dimensionless).
 
-        moments : list of str, optional
-            GPA moments to compute. Valid options are ``"G1"``, ``"G2"``,
-            ``"G3"``, and ``"G4"``. If ``None``, all four moments are
+            The tolerance is converted independently for each image dimension:
+
+                tolerance_x = symmetric_position_tolerance / 100 * image_width
+                tolerance_y = symmetric_position_tolerance / 100 * image_height
+
+            For example, ``0.01`` corresponds to 0.01% of the image width
+            and height.
+
+        opposite_vector_tolerance : float or None, optional
+            Relative residual tolerance for the vector-sum criterion
+            (dimensionless). Two gradient vectors are considered approximately
+            opposite when the magnitude of their vector sum, normalized by the
+            sum of their individual magnitudes, satisfies
+
+                |G₁ + G₂| / (|G₁| + |G₂|) <= opposite_vector_tolerance.
+
+            A value of ``0`` requires perfectly opposite vectors, while larger
+            values allow progressively larger deviations. For example,
+            ``0.3`` allows a normalized residual of up to 30%.
+
+            If this parameter is not ``None``, ``magnitude_tolerance`` and
+            ``angle_tolerance`` are ignored.
+
+        mask : numpy.ndarray or None, optional
+            Binary mask defining the valid image region (dimensionless).
+            Pixels with mask value 0 are excluded from the analysis. If
+            ``None``, all pixels are considered valid.
+
+        moments : str, list, tuple, or None, optional
+            GPA moments to compute (dimensionless identifiers). Valid options
+            are ``"G1"``, ``"G2"``, ``"G3"``, and ``"G4"``. A single moment
+            may be provided as a string. If ``None``, all four moments are
             computed.
 
         Returns
@@ -245,39 +269,21 @@ class GPA:
             Dictionary containing the requested GPA moments.
         """
 
-        if rtol is None:
-            rtol = ptol
-
-        if moments is None:
-            moments = ["G1", "G2", "G3", "G4"]
-
-        if mtol is not None:
-
-            if magnitude_threshold is None:
-                magnitude_threshold = mtol
-
+        if opposite_vector_tolerance is not None:
+            opposite_vector_tolerance = np.float32(opposite_vector_tolerance)
+            magnitude_tolerance = None
+            angle_tolerance = None
+        else: 
             if magnitude_tolerance is None:
-                magnitude_tolerance = mtol
+                magnitude_tolerance = 0.05
+                print("magnitude_tolerance not provided. Using 0.05 as the default value.")
 
-        if magnitude_threshold is None:
-            raise ValueError(
-                "magnitude_threshold must be provided."
-            )
+            if angle_tolerance is None:
+                angle_tolerance = 0.05
+                print("angle_tolerance not provided. Using 0.05 as the default value.")
 
-        if magnitude_tolerance is None:
-            raise ValueError(
-                "magnitude_tolerance must be provided."
-            )
-
-        if ftol is None:
-            raise ValueError(
-                "ftol must be provided."
-            )
-
-        if ptol is None:
-            raise ValueError(
-                "ptol must be provided."
-            )
+        if angle_tolerance is not None:
+            angle_tolerance = np.deg2rad(angle_tolerance)
 
         self.mask = mask
         if mask is None:
@@ -319,9 +325,10 @@ class GPA:
             radial_distance_map,
             magnitude_threshold,
             magnitude_tolerance,
-            ftol,
-            ptol,
-            rtol
+            angle_tolerance,
+            radial_distance_tolerance,
+            symmetric_position_tolerance,
+            opposite_vector_tolerance
         )
 
 
@@ -523,10 +530,10 @@ class GPA:
         radial_distance_map,
         magnitude_threshold,
         magnitude_tolerance,
-        ftol,
-        ptol,
-        rtol,
-        mtol=None
+        angle_tolerance,
+        radial_distance_tolerance,
+        symmetric_position_tolerance,
+        opposite_vector_tolerance
     ):
         """
         Remove radially symmetric contributions from the gradient field.
@@ -535,89 +542,122 @@ class GPA:
 
             ∇I(x, y) = (Gx, Gy),
 
-        where the gradient magnitude is
+        the gradient magnitude and orientation are defined as
 
             |∇I| = sqrt(Gx² + Gy²)
 
-        and the gradient orientation is
+            θ = atan2(Gy, Gx).
 
-            θ = atan2(Gy, Gx),
+        The algorithm groups pixels according to their radial distance from
+        the analysis center and compares gradient vectors within each group.
 
-        the algorithm groups gradient vectors according to the radial
-        distance of their positions from the analysis center.
+        Gradient vectors whose magnitude is below the specified relative
+        threshold are first removed. The remaining vectors are then tested
+        for radial symmetry.
 
-        Gradient vectors with a magnitude below the specified relative
-        threshold are first removed. The remaining vectors within the
-        same radial group are then compared pairwise.
+        Two gradient vectors can be classified as a symmetric pair using
+        one of two criteria.
 
-        Two gradient vectors are considered radially symmetric if they
-        simultaneously satisfy:
+        When ``opposite_vector_tolerance`` is provided, the vector-sum
+        criterion is used:
+
+            |G₁ + G₂|
+            --------- <= opposite_vector_tolerance
+            |G₁| + |G₂|
+
+        This criterion directly measures how close the two vectors are to
+        being equal in magnitude and opposite in direction.
+
+        Otherwise, symmetry is determined using three independent conditions:
 
         1. Similar gradient magnitudes:
 
-            ||∇I₁| - |∇I₂|| ≤ magnitude_tolerance · max(|∇I|)
+            ||∇I₁| - |∇I₂|| <= magnitude_tolerance * max(|∇I|)
 
         2. Approximately opposite orientations:
 
-            |Δθ - π| ≤ ftol
+            |Δθ - π| <= angle_tolerance
 
-        3. Approximately opposite spatial positions with respect to
-        the analysis center:
+        3. Approximately opposite spatial positions with respect to the
+        analysis center:
 
-            |x₁ + x₂ - 2cx| ≤ rtol
+            |x₁ + x₂ - 2cx| <= tolerance_x
 
-            |y₁ + y₂ - 2cy| ≤ rtol
+            |y₁ + y₂ - 2cy| <= tolerance_y
 
-        where Δθ is the angular difference between the two gradient
-        vectors and (cx, cy) is the analysis center.
+        where ``(cx, cy)`` is the analysis center.
 
-        When these conditions are satisfied, both vectors are removed
-        by setting
+        When all required symmetry conditions are satisfied, both vectors
+        are removed by setting
 
             Gx = 0
             Gy = 0
 
-        yielding the asymmetric gradient field
+        resulting in the asymmetric gradient field
 
-            ∇I_asym = (Gx_asym, Gy_asym),
-
-        which contains only the gradient vectors associated with
-        asymmetric image structures.
+            ∇I_asym = (Gx_asym, Gy_asym).
 
         Parameters
         ----------
         unique_radii : numpy.ndarray
-            Array containing the distinct radial distances.
+            Array containing the distinct radial distances present in the
+            image (pixels).
 
         radial_distance_map : numpy.ndarray
-            Integer-valued radial distance of every pixel from the
-            analysis center.
+            Two-dimensional array containing the radial distance of each
+            pixel from the analysis center (pixels).
 
         magnitude_threshold : float
-            Relative magnitude threshold, expressed as a fraction of
-            the maximum gradient magnitude. Gradient vectors whose
-            magnitude is below or equal to this threshold are removed
-            from the gradient field.
+            Relative threshold for the gradient magnitude (fraction of the
+            maximum gradient magnitude, dimensionless). Vectors satisfying
 
-        magnitude_tolerance : float
-            Relative tolerance, expressed as a fraction of the maximum
-            gradient magnitude, used to determine whether two gradient
-            vectors have sufficiently similar magnitudes to be considered
-            a symmetric pair.
+                |∇I| / max(|∇I|) <= magnitude_threshold
 
-        ftol : float
-            Angular tolerance used to identify gradient vectors with
-            approximately opposite orientations.
+            are removed. For example, ``0.01`` corresponds to 1%.
 
-        ptol : float
-            Position tolerance used when grouping gradient vectors
-            according to their radial distance from the analysis center.
+        magnitude_tolerance : float or None
+            Relative tolerance for comparing gradient magnitudes
+            (fraction of the maximum gradient magnitude, dimensionless).
+            This criterion is used only when ``opposite_vector_tolerance``
+            is ``None``. For example, ``0.05`` corresponds to 5%.
 
-        rtol : float, optional
-            Spatial tolerance used to determine whether two gradient
-            vectors are approximately opposite with respect to the
-            analysis center. If not provided, the value of `ptol` is
-            used by default.
+        angle_tolerance : float or None
+            Angular tolerance for comparing gradient orientations (radians
+            internally). The user-facing value is specified in degrees and
+            converted to radians before this function is called.
+
+        radial_distance_tolerance : float
+            Tolerance used when assigning pixels to the same radial group
+            (pixels).
+
+        symmetric_position_tolerance : float
+            Relative tolerance for comparing the spatial positions of two
+            pixels with respect to the analysis center (percentage of the
+            corresponding image dimension, dimensionless).
+
+            The actual tolerances used by the algorithm are
+
+                tolerance_x = symmetric_position_tolerance / 100 * cols
+
+                tolerance_y = symmetric_position_tolerance / 100 * rows
+
+            where ``cols`` and ``rows`` are the image width and height,
+            respectively.
+
+        opposite_vector_tolerance : float or None
+            Relative tolerance for the vector-sum symmetry criterion
+            (dimensionless). The normalized residual is defined as
+
+                |G₁ + G₂|
+                ---------
+                |G₁| + |G₂|.
+
+            The vectors are considered opposite when this quantity is less
+            than or equal to ``opposite_vector_tolerance``. For example,
+            ``0.3`` corresponds to a maximum normalized residual of 30%.
+
+            If provided, ``magnitude_tolerance`` and ``angle_tolerance`` are
+            not used.
         """
 
         # Convert the arrays to the same data types used by the
@@ -627,11 +667,9 @@ class GPA:
         radial_distance_map = np.asarray(radial_distance_map, dtype=np.int32)
 
         # Convert the tolerance values to float32.
-        if mtol is not None:
-            mtol = np.float32(mtol)
-        ftol = np.float32(ftol)
-        ptol = np.float32(ptol)
-        rtol = np.float32(rtol)
+        angle_tolerance = np.float32(angle_tolerance)
+        radial_distance_tolerance = np.float32(radial_distance_tolerance)
+        symmetric_position_tolerance = np.float32(symmetric_position_tolerance)
 
         removedP = []
 
@@ -648,7 +686,7 @@ class GPA:
             for py in range(self.rows):
                 for px in range(self.cols):
 
-                    if abs(radial_distance_map[py, px] - radius) <= abs(ptol):
+                    if abs(radial_distance_map[py, px] - radius) <= abs(radial_distance_tolerance):
                         x2.append(px)
                         y2.append(py)
 
@@ -704,9 +742,60 @@ class GPA:
                     ):
                         continue
 
-                    # Check whether the gradient magnitudes are similar.
-                    # cont +=1
-                    if abs(self.mods[py, px] - self.mods[py2, px2]) <= magnitude_tolerance * self.maxGrad:
+
+                    position_tolerance_x = (
+                        symmetric_position_tolerance / 100.0
+                    ) * self.cols
+
+                    position_tolerance_y = (
+                        symmetric_position_tolerance / 100.0
+                    ) * self.rows
+
+                    if opposite_vector_tolerance is not None:
+                        gx1 = self.gradient_asymmetric_dx[py, px]
+                        gy1 = self.gradient_asymmetric_dy[py, px]
+
+                        gx2 = self.gradient_asymmetric_dx[py2, px2]
+                        gy2 = self.gradient_asymmetric_dy[py2, px2]
+
+                        # IDL criterion: magnitude of the vector sum
+                        r = np.sqrt(
+                            (gx1 + gx2)**2 +
+                            (gy1 + gy2)**2
+                        )
+
+                        # Normalize the residual
+                        denom = np.sqrt(gx1**2 + gy1**2) + np.sqrt(gx2**2 + gy2**2)
+
+                        if denom > 0:
+                            tolerance_error = r / denom
+                        else:
+                            tolerance_error = 0.0
+
+                        # print(f"Tolerance error: {tolerance_error}")
+
+                        if tolerance_error <= opposite_vector_tolerance:
+                            # Check whether the two pixels are opposite
+                            # with respect to the analysis center.
+                            # (px, py) + (px2, py2) ≈ 2*(cx, cy)
+
+                            position_opposite = (
+                                abs((px + px2) - 2 * self.cx) <= position_tolerance_x
+                                and
+                                abs((py + py2) - 2 * self.cy) <= position_tolerance_y
+                            )
+
+                            if position_opposite:
+
+                                self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
+                                self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
+
+                                self.gradient_asymmetric_dx[py2, px2] = np.float32(0.0)
+                                self.gradient_asymmetric_dy[py2, px2] = np.float32(0.0)
+
+                                break
+                    
+                    elif abs(self.mods[py, px] - self.mods[py2, px2]) <= magnitude_tolerance * self.maxGrad:
                     
                         # Check whether the gradient vectors have
                         # approximately opposite orientations.
@@ -716,16 +805,16 @@ class GPA:
                                     self.phases[py, px],
                                     self.phases[py2, px2]
                                 ) - np.pi
-                            ) <= ftol
+                            ) <= angle_tolerance
                         )
 
                         # Check whether the two pixels are opposite
                         # with respect to the analysis center.
                         # (px, py) + (px2, py2) ≈ 2*(cx, cy)
                         position_opposite = (
-                            abs((px + px2) - 2*self.cx) <= rtol
+                            abs((px + px2) - 2 * self.cx) <= position_tolerance_x
                             and
-                            abs((py + py2) - 2*self.cy) <= rtol
+                            abs((py + py2) - 2 * self.cy) <= position_tolerance_y
                         )
 
                         if angle_opposite and position_opposite:
@@ -772,9 +861,8 @@ class GPA:
         # Store the remaining asymmetric points.
         if len(nremovedP) > 0:
             self.nremovedP = np.array(nremovedP, dtype=np.int32)
+
     
-    # def _angleDifference(self, a1, a2):
-    #   return min(abs(a1-a2), abs(abs(a1-a2)-2*np.pi))
 
     def _angleDifference(self, a1, a2):
         diff = abs(a1-a2)
@@ -903,6 +991,8 @@ class GPA:
 
         return G1
 
+
+
     def _G2(self):
         """
         Compute the second Gradient Pattern Analysis (GPA) moment.
@@ -948,6 +1038,7 @@ class GPA:
 
         return G2
 
+
     
     def _G3(self):
             
@@ -955,6 +1046,8 @@ class GPA:
     def _G4(self):
             
         return
+
+
 
     def _vectorialVariety(self):
         """
@@ -1390,8 +1483,6 @@ class GPA:
         plt.tight_layout(pad=0)
 
         plt.show()
-
-        
 
     def plot_asymmetric_gradient_field(
         self,
