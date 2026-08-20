@@ -24,7 +24,6 @@ ENV/
 *.bak
 
 # Dados e resultados
-data/
 *.csv
 *.tsv
 *.h5
