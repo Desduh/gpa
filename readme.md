@@ -143,16 +143,18 @@ GPA can also be applied to asymmetric and more complex spatial patterns.
 
 The first step of GPA is the calculation of the spatial gradient:
 
-[
+$$
 \nabla I(x,y) =
-\left(G_x(x,y),G_y(x,y)\right).
-]
+\left(G_x(x,y), G_y(x,y)\right).
+$$
 
 The gradient magnitude and orientation are then used to characterize the local structure of the scalar field.
 
 The initial gradient field can be visualized as:
 
-![Initial gradient field](data/gradient_field.png)
+<p align="center">
+  <img src="./data/gradient_field.png" alt="Initial gradient field">
+</p>
 
 The arrows represent the local gradient vectors, while the marker indicates the analysis center.
 
@@ -176,7 +178,9 @@ The procedure can be summarized as:
 
 Vectors with similar distances from the analysis center are grouped together.
 
-![Radial grouping](data/radial_group.png)
+<p align="center">
+  <img src="./data/radial_group.png" alt="Radial grouping">
+</p>
 
 The `radial_distance_tolerance` controls how different two radial distances can be while still belonging to the same radial group.
 
@@ -191,11 +195,11 @@ Very weak gradients can be excluded before symmetry comparisons.
 
 The threshold is defined relative to the maximum gradient magnitude:
 
-[
+$$
 \frac{|\nabla I|}
 {\max(|\nabla I|)}
 \leq T_m.
-]
+$$
 
 For example:
 
@@ -205,7 +209,9 @@ magnitude_threshold = 0.10
 
 corresponds to **10% of the maximum gradient magnitude**.
 
-![Magnitude threshold](data/magnitude_threshold.png)
+<p align="center">
+  <img src="./data/magnitude_threshold.png" alt="Magnitude threshold">
+</p>
 
 This parameter controls which individual gradient vectors are strong enough to participate in the symmetry analysis.
 
@@ -317,11 +323,11 @@ An alternative criterion can be used to determine whether two gradient vectors a
 
 Instead of independently evaluating their magnitudes and orientations, the algorithm evaluates the normalized magnitude of their vector sum:
 
-[
+$$
 R =
 \frac{|\mathbf{G}_1+\mathbf{G}_2|}
 {|\mathbf{G}_1|+|\mathbf{G}_2|}.
-]
+$$
 
 Pairs with sufficiently small residuals are considered opposite.
 
@@ -335,7 +341,9 @@ The spatial opposition criterion remains necessary.
 
 After radial grouping and magnitude filtering, candidate vectors are compared pairwise.
 
-![Symmetry pair](data/radial_group_pair.png)
+<p align="center">
+  <img src="./data/radial_group_pair.png" alt="Symmetry pair">
+</p>
 
 When the standard criterion is used, a pair is considered symmetric when **all three conditions** are satisfied:
 
@@ -345,12 +353,12 @@ When the standard criterion is used, a pair is considered symmetric when **all t
 
 The symmetric contributions are removed from the gradient field, resulting in the asymmetric field:
 
-[
+$$
 \nabla I_{\mathrm{asym}}
 ========================
 
 \nabla I-\nabla I_{\mathrm{sym}}.
-]
+$$
 
 This asymmetric field is subsequently used for the GPA analysis.
 
