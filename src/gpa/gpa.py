@@ -409,22 +409,22 @@ class GPA:
         #
         # gx = ∂I/∂x
         # gy = ∂I/∂y
-        gy, gx = self.gradient(self.matrix)
+        self.gy, self.gx = self.gradient(self.matrix)
 
         # Store the original gradient components.
         # These arrays remain unchanged throughout the analysis.
-        self.gradient_dx = gx.copy()
-        self.gradient_dy = gy.copy()
+        self.gradient_dx = self.gx.copy()
+        self.gradient_dy = self.gy.copy()
 
         # Create copies of the gradient components that will
         # be modified during the symmetry-removal procedure.
-        self.gradient_asymmetric_dx = gx.copy()
-        self.gradient_asymmetric_dy = gy.copy()
+        gradient_asymmetric_dx = self.gx.copy()
+        gradient_asymmetric_dy = self.gy.copy()
 
         # Compute the gradient magnitude:
         #
         # |∇I| = sqrt(Gx² + Gy²)
-        self.mods = np.sqrt(gx**2 + gy**2)
+        self.mods = np.sqrt(self.gx**2 + self.gy**2)
 
         # Store the maximum gradient magnitude.
         # This value is used later for normalization:
@@ -437,7 +437,7 @@ class GPA:
         # θ = atan2(Gy, Gx)
         #
         # The result is initially in the interval [-π, π].
-        angle = np.arctan2(gy, gx)
+        angle = np.arctan2(self.gy, self.gx)
 
         # Convert negative angles to the interval [0, 2π].
         self.phases = np.where(
@@ -597,32 +597,22 @@ class GPA:
             pixel from the analysis center (pixels).
 
         magnitude_threshold : float
-            Relative threshold for the gradient magnitude (fraction of the
-            maximum gradient magnitude, dimensionless). Vectors satisfying
-
-                |∇I| / max(|∇I|) <= magnitude_threshold
-
-            are removed. For example, ``0.01`` corresponds to 1%.
+            Relative threshold for the gradient magnitude.
 
         magnitude_tolerance : float or None
-            Relative tolerance for comparing gradient magnitudes
-            (fraction of the maximum gradient magnitude, dimensionless).
-            This criterion is used only when ``opposite_vector_tolerance``
-            is ``None``. For example, ``0.05`` corresponds to 5%.
+            Relative tolerance for comparing gradient magnitudes.
 
         angle_tolerance : float or None
-            Angular tolerance for comparing gradient orientations (radians
-            internally). The user-facing value is specified in degrees and
-            converted to radians before this function is called.
+            Angular tolerance in radians. The user-facing value is specified
+            in degrees and converted before this function is called.
 
         radial_distance_tolerance : float
-            Tolerance used when assigning pixels to the same radial group
-            (pixels).
+            Tolerance used when assigning pixels to the same radial group.
 
         symmetric_position_tolerance : float
             Relative tolerance for comparing the spatial positions of two
-            pixels with respect to the analysis center (percentage of the
-            corresponding image dimension, dimensionless).
+            pixels with respect to the analysis center, expressed as a
+            percentage of the corresponding image dimension.
 
         opposite_vector_tolerance : float or None
             Relative tolerance for the vector-sum symmetry criterion.
