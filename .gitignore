@@ -34,14 +34,6 @@ ENV/
 *.mat
 *.txt
 
-# Arquivos de imagem ou figuras geradas
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.svg
-*.pyc
-
 # Arquivos grandes (se estiver usando DVC, por exemplo)
 *.zip
 *.tar
