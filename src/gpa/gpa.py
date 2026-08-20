@@ -524,6 +524,7 @@ class GPA:
 
 
 
+
     def _update_asymmetric_mat(
         self,
         unique_radii,
@@ -533,7 +534,7 @@ class GPA:
         angle_tolerance,
         radial_distance_tolerance,
         symmetric_position_tolerance,
-        opposite_vector_tolerance
+        opposite_vector_tolerance,
     ):
         """
         Remove radially symmetric contributions from the gradient field.
@@ -585,18 +586,6 @@ class GPA:
 
             |y₁ + y₂ - 2cy| <= tolerance_y
 
-        where ``(cx, cy)`` is the analysis center.
-
-        When all required symmetry conditions are satisfied, both vectors
-        are removed by setting
-
-            Gx = 0
-            Gy = 0
-
-        resulting in the asymmetric gradient field
-
-            ∇I_asym = (Gx_asym, Gy_asym).
-
         Parameters
         ----------
         unique_radii : numpy.ndarray
@@ -635,232 +624,250 @@ class GPA:
             pixels with respect to the analysis center (percentage of the
             corresponding image dimension, dimensionless).
 
-            The actual tolerances used by the algorithm are
-
-                tolerance_x = symmetric_position_tolerance / 100 * cols
-
-                tolerance_y = symmetric_position_tolerance / 100 * rows
-
-            where ``cols`` and ``rows`` are the image width and height,
-            respectively.
-
         opposite_vector_tolerance : float or None
-            Relative tolerance for the vector-sum symmetry criterion
-            (dimensionless). The normalized residual is defined as
-
-                |G₁ + G₂|
-                ---------
-                |G₁| + |G₂|.
-
-            The vectors are considered opposite when this quantity is less
-            than or equal to ``opposite_vector_tolerance``. For example,
-            ``0.3`` corresponds to a maximum normalized residual of 30%.
-
-            If provided, ``magnitude_tolerance`` and ``angle_tolerance`` are
-            not used.
+            Relative tolerance for the vector-sum symmetry criterion.
+            If provided, magnitude_tolerance and angle_tolerance are ignored.
         """
 
-        # Convert the arrays to the same data types used by the
-        # original Cython implementation.
+        # Local references
+
         mask = np.asarray(self.mask, dtype=np.float32)
-        unique_radii = np.asarray(unique_radii, dtype=np.int32)
-        radial_distance_map = np.asarray(radial_distance_map, dtype=np.int32)
+        radial_distance_map = np.asarray(
+            radial_distance_map,
+            dtype=np.int32
+        )
 
-        # Convert the tolerance values to float32.
-        angle_tolerance = np.float32(angle_tolerance)
-        radial_distance_tolerance = np.float32(radial_distance_tolerance)
-        symmetric_position_tolerance = np.float32(symmetric_position_tolerance)
+        gx = self.gradient_asymmetric_dx
+        gy = self.gradient_asymmetric_dy
+        mods = self.mods
+        phases = self.phases
 
-        removedP = []
+        # Constants
 
-        # Process each radial distance.
-        # Gradient vectors belonging to the same radial group
-        # may form symmetric pairs.
+        position_tolerance_x = (
+            symmetric_position_tolerance / 100.0
+        ) * self.cols
+
+        position_tolerance_y = (
+            symmetric_position_tolerance / 100.0
+        ) * self.rows
+
+        center_x2 = 2.0 * self.cx
+        center_y2 = 2.0 * self.cy
+
+        magnitude_limit = (
+            magnitude_threshold * self.maxGrad
+        )
+
+        magnitude_tolerance_limit = (
+            magnitude_tolerance * self.maxGrad
+            if magnitude_tolerance is not None
+            else None
+        )
+
+        # Keep the original tolerance instead of truncating it to int.
+        radial_distance_tolerance = abs(radial_distance_tolerance)
+
+        # Flatten and sort radial distances ONCE
+
+        flat_radii = radial_distance_map.ravel()
+
+        order = np.argsort(flat_radii)
+
+        sorted_radii = flat_radii[order]
+
+        sorted_y, sorted_x = np.unravel_index(
+            order,
+            radial_distance_map.shape
+        )
+
+        # Remove weak gradient vectors
+
+        weak = (
+            (mods <= magnitude_limit)
+            & (mask != 0)
+        )
+
+        gx[weak] = 0.0
+        gy[weak] = 0.0
+
+        # Process radial groups
+
         for radius in unique_radii:
 
-            x2 = []
-            y2 = []
+            left = np.searchsorted(
+                sorted_radii,
+                radius - radial_distance_tolerance,
+                side="left"
+            )
 
-            # Collect all pixels belonging to the current
-            # radial distance.
-            for py in range(self.rows):
-                for px in range(self.cols):
+            right = np.searchsorted(
+                sorted_radii,
+                radius + radial_distance_tolerance,
+                side="right"
+            )
 
-                    if abs(radial_distance_map[py, px] - radius) <= abs(radial_distance_tolerance):
-                        x2.append(px)
-                        y2.append(py)
-
-            # Pixel coordinates within the current radial group.
-            x = np.array(x2, dtype=np.int32)
-            y = np.array(y2, dtype=np.int32)
+            x = sorted_x[left:right]
+            y = sorted_y[left:right]
 
             lx = len(x)
 
-            # Compare every pair of gradient vectors in the
-            # current radial group.
-            # cont = 0
+            if lx < 2:
+                continue
+
+            # Pre-compute candidate indices once for this radial group.
+            candidate_indices = np.arange(lx)
+
             for i in range(lx):
 
                 px = x[i]
                 py = y[i]
 
+                # Current position must contain a valid vector.
                 if mask[py, px] == 0:
                     continue
 
+                gx1 = gx[py, px]
+                gy1 = gy[py, px]
 
-                if (
-                    self.gradient_asymmetric_dx[py, px] == 0.0
-                    and self.gradient_asymmetric_dy[py, px] == 0.0
-                ):
+                # Vector already removed.
+                if gx1 == 0.0 and gy1 == 0.0:
                     continue
 
-                # Remove gradient vectors whose magnitude is
-                # below the specified threshold.
-                if (self.mods[py, px] / self.maxGrad) <= magnitude_threshold:
+                # Find the expected symmetric position.
 
-                    self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
-                    self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
+                target_x = center_x2 - px
+                target_y = center_y2 - py
 
+                candidates = candidate_indices[
+                    (candidate_indices > i)
+                    &
+                    (np.abs(x - target_x) <= position_tolerance_x)
+                    &
+                    (np.abs(y - target_y) <= position_tolerance_y)
+                ]
+
+                if len(candidates) == 0:
                     continue
 
-                # Compare the current vector with the remaining
-                # vectors in the same radial group.
-                for j in range(i + 1, lx):
+                # Norm of the first vector.
+                norm1 = np.sqrt(
+                    gx1 * gx1 +
+                    gy1 * gy1
+                )
+
+                # Compare only candidate symmetric vectors
+
+                for j in candidates:
 
                     px2 = x[j]
                     py2 = y[j]
 
-                    # if mask[py2, px2] == 0:
-                    #     continue
-
+                    # Second position must contain a valid vector.
                     if mask[py2, px2] == 0:
                         continue
 
-                    if (
-                        self.gradient_asymmetric_dx[py2, px2] == 0.0
-                        and self.gradient_asymmetric_dy[py2, px2] == 0.0
-                    ):
+                    gx2 = gx[py2, px2]
+                    gy2 = gy[py2, px2]
+
+                    # Vector already removed.
+                    if gx2 == 0.0 and gy2 == 0.0:
                         continue
 
-
-                    position_tolerance_x = (
-                        symmetric_position_tolerance / 100.0
-                    ) * self.cols
-
-                    position_tolerance_y = (
-                        symmetric_position_tolerance / 100.0
-                    ) * self.rows
+                    # Criterion 1:
+                    # Vector-sum symmetry
 
                     if opposite_vector_tolerance is not None:
-                        gx1 = self.gradient_asymmetric_dx[py, px]
-                        gy1 = self.gradient_asymmetric_dy[py, px]
 
-                        gx2 = self.gradient_asymmetric_dx[py2, px2]
-                        gy2 = self.gradient_asymmetric_dy[py2, px2]
-
-                        # IDL criterion: magnitude of the vector sum
-                        r = np.sqrt(
-                            (gx1 + gx2)**2 +
-                            (gy1 + gy2)**2
+                        norm2 = np.sqrt(
+                            gx2 * gx2 +
+                            gy2 * gy2
                         )
 
-                        # Normalize the residual
-                        denom = np.sqrt(gx1**2 + gy1**2) + np.sqrt(gx2**2 + gy2**2)
+                        denom = norm1 + norm2
 
-                        if denom > 0:
-                            tolerance_error = r / denom
-                        else:
-                            tolerance_error = 0.0
+                        if denom == 0.0:
+                            continue
 
-                        # print(f"Tolerance error: {tolerance_error}")
-
-                        if tolerance_error <= opposite_vector_tolerance:
-                            # Check whether the two pixels are opposite
-                            # with respect to the analysis center.
-                            # (px, py) + (px2, py2) ≈ 2*(cx, cy)
-
-                            position_opposite = (
-                                abs((px + px2) - 2 * self.cx) <= position_tolerance_x
-                                and
-                                abs((py + py2) - 2 * self.cy) <= position_tolerance_y
-                            )
-
-                            if position_opposite:
-
-                                self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
-                                self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
-
-                                self.gradient_asymmetric_dx[py2, px2] = np.float32(0.0)
-                                self.gradient_asymmetric_dy[py2, px2] = np.float32(0.0)
-
-                                break
-                    
-                    elif abs(self.mods[py, px] - self.mods[py2, px2]) <= magnitude_tolerance * self.maxGrad:
-                    
-                        # Check whether the gradient vectors have
-                        # approximately opposite orientations.
-                        angle_opposite = (
-                            abs(
-                                self._angleDifference(
-                                    self.phases[py, px],
-                                    self.phases[py2, px2]
-                                ) - np.pi
-                            ) <= angle_tolerance
+                        sum_sq = (
+                            (gx1 + gx2) ** 2
+                            +
+                            (gy1 + gy2) ** 2
                         )
 
-                        # Check whether the two pixels are opposite
-                        # with respect to the analysis center.
-                        # (px, py) + (px2, py2) ≈ 2*(cx, cy)
-                        position_opposite = (
-                            abs((px + px2) - 2 * self.cx) <= position_tolerance_x
-                            and
-                            abs((py + py2) - 2 * self.cy) <= position_tolerance_y
+                        tolerance_limit = (
+                            opposite_vector_tolerance * denom
                         )
 
-                        if angle_opposite and position_opposite:
+                        if sum_sq <= tolerance_limit * tolerance_limit:
 
-                            self.gradient_asymmetric_dx[py, px] = np.float32(0.0)
-                            self.gradient_asymmetric_dy[py, px] = np.float32(0.0)
+                            gx[py, px] = 0.0
+                            gy[py, px] = 0.0
 
-                            self.gradient_asymmetric_dx[py2, px2] = np.float32(0.0)
-                            self.gradient_asymmetric_dy[py2, px2] = np.float32(0.0)
+                            gx[py2, px2] = 0.0
+                            gy[py2, px2] = 0.0
 
                             break
 
-        # Preserve compatibility with the original Cython implementation.
-        if len(removedP) > 0:
-            self.removedP = np.array(removedP, dtype=np.int32)
+                    # Criterion 2:
+                    # Magnitude + angle symmetry
 
-        # Reset the vector counters.
-        self.totalVet = 0
-        self.totalAssimetric = 0
+                    else:
 
-        nremovedP = []
+                        if magnitude_tolerance_limit is None:
+                            continue
 
-        # Count the remaining asymmetric vectors.
-        for j in range(self.rows):
-            for i in range(self.cols):
+                        # First reject using magnitude.
+                        if (
+                            abs(mods[py, px] - mods[py2, px2])
+                            > magnitude_tolerance_limit
+                        ):
+                            continue
 
-                # Valid asymmetric gradient vector.
-                if (
-                    (
-                        self.gradient_asymmetric_dy[j, i] != 0.0
-                        or self.gradient_asymmetric_dx[j, i] != 0.0
-                    )
-                    and mask[j, i] != 0.0
-                ):
-                    nremovedP.append([j, i])
-                    self.totalVet += 1
+                        # Only now evaluate orientation.
+                        angle_opposite = (
+                            abs(
+                                self._angleDifference(
+                                    phases[py, px],
+                                    phases[py2, px2]
+                                ) - np.pi
+                            )
+                            <= angle_tolerance
+                        )
 
-                # Gradient vector removed due to radial symmetry.
-                elif mask[j, i] != 0.0:
-                    removedP.append([j, i])
-                    self.totalVet += 1
-                    self.totalAssimetric += 1
+                        if not angle_opposite:
+                            continue
 
-        # Store the remaining asymmetric points.
-        if len(nremovedP) > 0:
-            self.nremovedP = np.array(nremovedP, dtype=np.int32)
+                        gx[py, px] = 0.0
+                        gy[py, px] = 0.0
+
+                        gx[py2, px2] = 0.0
+                        gy[py2, px2] = 0.0
+
+                        break
+
+        # Recompute counters
+
+        valid = mask != 0
+
+        remaining = (
+            valid
+            & (
+                (gx != 0.0)
+                | (gy != 0.0)
+            )
+        )
+
+        removed = valid & ~remaining
+
+        self.totalVet = np.count_nonzero(remaining)
+        self.totalAssimetric = np.count_nonzero(removed)
+
+        # Remaining asymmetric points
+        self.nremovedP = np.argwhere(remaining)
+
+        # Removed points
+        self.removedP = np.argwhere(removed)
 
     
 
@@ -1030,7 +1037,9 @@ class GPA:
         self.phaseDiversity = self._vectorialVariety()
 
         # Compute the second GPA moment:
-        #
+        if self.totalVet == 0:
+            return 0.0
+
         # G2 = (V / VA) · (2 - D)
         G2 = (
             float(self.totalAssimetric) / float(self.totalVet)
