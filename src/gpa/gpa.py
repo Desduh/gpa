@@ -1184,12 +1184,14 @@ class GPA:
             xmin = 0
             xmax = self.cols
 
-        
         # No asymmetric vectors
-
         if not has_vectors:
-
             print("No asymmetric gradient vectors remaining.")
+            return
+
+        # Not enough points for Delaunay triangulation
+        if not hasattr(self, "vvx") or len(self.vvx) < 3:
+            print("Not enough asymmetric gradient vectors for Delaunay triangulation.")
             return
 
         # Figure
