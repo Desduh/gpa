@@ -418,8 +418,8 @@ class GPA:
 
         # Create copies of the gradient components that will
         # be modified during the symmetry-removal procedure.
-        gradient_asymmetric_dx = self.gx.copy()
-        gradient_asymmetric_dy = self.gy.copy()
+        self.gradient_asymmetric_dx = self.gx.copy()
+        self.gradient_asymmetric_dy = self.gy.copy()
 
         # Compute the gradient magnitude:
         #
