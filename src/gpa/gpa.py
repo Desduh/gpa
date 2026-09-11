@@ -155,11 +155,11 @@ class GPA:
 
     def evaluate(
         self,
-        magnitude_threshold=0.019999999552965164,
-        magnitude_tolerance=0.019999999552965164,
-        angle_tolerance=0.029999999329447746,
-        radial_distance_tolerance=0.009999999776482582,
-        symmetric_position_tolerance=0.009999999776482582,
+        magnitude_threshold=0.01,
+        magnitude_tolerance=0.25,
+        angle_tolerance=15,
+        radial_distance_tolerance=0.5,
+        symmetric_position_tolerance=0.5,
         mask=None,
         moments=["G1", "G2", "G3", "G4"],
     ):
@@ -641,6 +641,11 @@ class GPA:
 
         mask = np.asarray(self.mask, dtype=np.float32)
 
+        angle_tolerance = max(
+            angle_tolerance,
+            1,
+        )
+
         unique_radii = np.asarray(
             unique_radii,
             dtype=np.int32
@@ -938,28 +943,26 @@ class GPA:
         formulation of the original 1999 method, rather than introduce a new
         definition of the G1 parameter.
         """
-
         dx = self.gradient_asymmetric_dx
         dy = self.gradient_asymmetric_dy
 
         # Select non-zero asymmetric gradient vectors
-        # Equivalent to:
-        #
-        # naozero = WHERE((dx NE 0) OR (dy NE 0))
-
         naozero = np.flatnonzero(
             (dx != 0) | (dy != 0)
         )
 
-        # self.totalAssimetric = len(naozero)
+        # Number of asymmetric gradient vectors
+        self.totalAssimetric = len(naozero)
 
         if self.totalAssimetric < 3:
+
             self.n_edges = 0
+
             G1 = 0.0
+
             return G1
 
         # IDL factor
-
         factor = 1.0 / (
             2.0 * np.sqrt(
                 np.abs(np.max(dx))**2 +
@@ -968,7 +971,6 @@ class GPA:
         )
 
         # Convert flattened IDL indices to (row, column)
-
         rows, cols = np.unravel_index(
             naozero,
             dx.shape
@@ -990,7 +992,6 @@ class GPA:
         )
 
         # Delaunay triangulation
-
         triangulation_points = np.column_stack(
             (self.vvx, self.vvy)
         ).astype(np.float64)
@@ -1000,7 +1001,6 @@ class GPA:
         )
 
         # Number of unique Delaunay edges
-
         indptr, indices = (
             self.triangles.vertex_neighbor_vertices
         )
@@ -1008,7 +1008,6 @@ class GPA:
         self.n_edges = len(indices) / 2.0
 
         # GPA / Fragmentation
-
         G1 = (
             self.n_edges - self.totalAssimetric
         ) / self.totalAssimetric
