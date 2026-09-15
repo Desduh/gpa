@@ -22,6 +22,7 @@ ENV/
 *.log
 *.tmp
 *.bak
+*.pyc
 
 # Dados e resultados
 *.csv
