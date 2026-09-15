@@ -548,17 +548,13 @@ class GPA:
 
         Starting from the gradient field
 
-        ```
         ∇I(x, y) = (Gx, Gy),
-        ```
 
         the gradient magnitude and orientation are defined as
 
-        ```
         |∇I| = sqrt(Gx² + Gy²)
 
         θ = atan2(Gy, Gx).
-        ```
 
         The algorithm groups pixels according to their radial distance from
         the analysis center and compares gradient vectors within each group.
@@ -567,51 +563,18 @@ class GPA:
         threshold are first removed. The remaining vectors are then tested
         for radial symmetry.
 
-        Two gradient vectors can be classified as a symmetric pair using
-        one of two criteria.
-
-        When `opposite_vector_tolerance` is provided, the vector-sum
-        criterion is used:
-
-        ```
-        |G₁ + G₂|
-        --------- <= opposite_vector_tolerance
-        |G₁| + |G₂|
-        ```
-
-        This criterion directly measures how close the two vectors are to
-        being equal in magnitude and opposite in direction.
-
-        Otherwise, symmetry is determined using three conditions:
-
-        1. Similar gradient magnitudes:
-
-        ||∇I₁| - |∇I₂|| <= magnitude_tolerance * max(|∇I|)
-
-        2. Approximately opposite orientations:
-
-        |Δθ - π| <= angle_tolerance
-
-        3. Approximately opposite spatial positions with respect to the
-        analysis center:
-
-        |x₁ + x₂ - 2cx| <= symmetric_position_tolerance
-
-        |y₁ + y₂ - 2cy| <= symmetric_position_tolerance
-
         Parameters
         ----------
         unique_radii : array-like
             Unique radial distances used to group pixels.
 
         radial_distance_map : array-like
-            Map containing the radial distance of each pixel from the analysis center.
+            Map containing the radial distance of each pixel from the
+            analysis center.
 
         magnitude_threshold : float
             Minimum gradient magnitude threshold, expressed as a fraction
             of the maximum gradient magnitude.
-            Note: values greater than 0.15 may result in excessive removal
-            of gradient vectors, affecting the analysis.
 
         magnitude_tolerance : float
             Tolerance for the difference between the magnitudes of two
@@ -619,23 +582,18 @@ class GPA:
             gradient magnitude.
 
         angle_tolerance : float
-            Angular tolerance, in radians, for considering two vectors
+            Angular tolerance, in degrees, for considering two vectors
             approximately opposite.
 
         radial_distance_tolerance : float
             Tolerance, in pixels, for grouping pixels with similar radial
             distances.
-            Note: very large values may affect the results and significantly
-            increase computational complexity, making the algorithm extremely
-            slow. Ideally, vary this parameter according to the image size,
-            testing values up to 5.
 
         symmetric_position_tolerance : float
             Tolerance, in pixels, for considering two pixels approximately
             symmetric with respect to the analysis center.
-            Note: values that are too large relative to the matrix size may
-            cause the symmetry center to lose its meaning.
         """
+
         # Convert the arrays to the same data types used by the
         # original Cython implementation.
 
@@ -670,14 +628,16 @@ class GPA:
             symmetric_position_tolerance
         )
 
+        # Points removed specifically because of radial symmetry.
+
         removedP = []
 
         # Local references.
+
         gx = self.gradient_asymmetric_dx
         gy = self.gradient_asymmetric_dy
         mods = self.mods
         phases = self.phases
-
         max_grad = self.maxGrad
 
         # Pre-compute the coordinates of every pixel.
@@ -692,6 +652,7 @@ class GPA:
         flat_radii = radial_distance_map.ravel()
 
         # Sort radial distances ONCE.
+
         order = np.argsort(flat_radii)
         sorted_radii = flat_radii[order]
 
@@ -722,6 +683,7 @@ class GPA:
                 continue
 
             # Create coordinate lookup only for this radial group.
+
             coordinate_to_index = {
                 (int(x[k]), int(y[k])): k
                 for k in range(lx)
@@ -741,6 +703,8 @@ class GPA:
                     gy[py, px] == 0.0
                 ):
                     continue
+
+                # Remove vectors below the magnitude threshold.
 
                 if (
                     mods[py, px] / max_grad
@@ -780,9 +744,15 @@ class GPA:
                     )
                 )
 
-                for candidate_y in range(y_min, y_max + 1):
+                for candidate_y in range(
+                    y_min,
+                    y_max + 1
+                ):
 
-                    for candidate_x in range(x_min, x_max + 1):
+                    for candidate_x in range(
+                        x_min,
+                        x_max + 1
+                    ):
 
                         k = coordinate_to_index.get(
                             (candidate_x, candidate_y)
@@ -792,6 +762,7 @@ class GPA:
                             candidate_indices.append(k)
 
                 # Preserve original candidate order.
+
                 candidate_indices.sort()
 
                 for j in candidate_indices:
@@ -807,6 +778,14 @@ class GPA:
                         and
                         gy[py2, px2] == 0.0
                     ):
+                        continue
+
+                    # Only compare vectors that are also above
+                    # the magnitude threshold.
+
+                    if (
+                        mods[py2, px2] / max_grad
+                    ) <= magnitude_threshold:
                         continue
 
                     if (
@@ -830,6 +809,17 @@ class GPA:
 
                         if angle_opposite:
 
+                            # Store the vectors removed specifically
+                            # because of radial symmetry.
+
+                            removedP.append(
+                                [py, px]
+                            )
+
+                            removedP.append(
+                                [py2, px2]
+                            )
+
                             gx[py, px] = np.float32(0.0)
                             gy[py, px] = np.float32(0.0)
 
@@ -838,11 +828,19 @@ class GPA:
 
                             break
 
-        # Preserve compatibility with the original implementation.
+        # Store the points removed by radial symmetry.
 
         if len(removedP) > 0:
+
             self.removedP = np.array(
                 removedP,
+                dtype=np.int32
+            )
+
+        else:
+
+            self.removedP = np.empty(
+                (0, 2),
                 dtype=np.int32
             )
 
@@ -853,35 +851,36 @@ class GPA:
 
         nremovedP = []
 
-        # Count the remaining asymmetric vectors.
+        # Count vectors according to their final classification.
 
         for j in range(self.rows):
 
             for i in range(self.cols):
 
-                # Valid asymmetric gradient vector.
+                if mask[j, i] == 0:
+                    continue
+
+                # Ignore vectors below the magnitude threshold.
 
                 if (
-                    (
-                        gy[j, i] != 0.0
-                        or
-                        gx[j, i] != 0.0
-                    )
-                    and
-                    mask[j, i] != 0.0
+                    mods[j, i] / max_grad
+                ) <= magnitude_threshold:
+                    continue
+
+                self.totalVet += 1
+
+                # Vector remains after radial-symmetry removal.
+
+                if (
+                    gy[j, i] != 0.0
+                    or
+                    gx[j, i] != 0.0
                 ):
 
-                    nremovedP.append([j, i])
+                    nremovedP.append(
+                        [j, i]
+                    )
 
-                    self.totalVet += 1
-
-                # Gradient vector removed due to radial symmetry.
-
-                elif mask[j, i] != 0.0:
-
-                    removedP.append([j, i])
-
-                    self.totalVet += 1
                     self.totalAssimetric += 1
 
         # Store the remaining asymmetric points.
@@ -892,6 +891,15 @@ class GPA:
                 nremovedP,
                 dtype=np.int32
             )
+
+        else:
+
+            self.nremovedP = np.empty(
+                (0, 2),
+                dtype=np.int32
+            )
+
+
 
     def _angleDifference(self, a1, a2):
         diff = abs(a1-a2)
@@ -1097,35 +1105,29 @@ class GPA:
         sum_y = 0.0
         sum_magnitude = 0.0
 
-        # No asymmetric vectors are available.
         if self.totalAssimetric < 1:
             return 0.0
 
-        # Sum the asymmetric gradient vectors.
         for i in range(self.totalAssimetric):
 
             row = self.nremovedP[i, 0]
             col = self.nremovedP[i, 1]
 
-            # Gradient magnitude:
-            #
-            # |vi| = sqrt(Gx² + Gy²)
-            magnitude = self.mods[row, col]
+            gx = self.gradient_asymmetric_dx[row, col]
+            gy = self.gradient_asymmetric_dy[row, col]
 
-            sum_x += self.gradient_dx[row, col]
-            sum_y += self.gradient_dy[row, col]
+            magnitude = np.sqrt(gx**2 + gy**2)
 
-            # Sum of the vector magnitudes.
+            sum_x += gx
+            sum_y += gy
             sum_magnitude += magnitude
 
         if sum_magnitude <= 0.0:
             return 0.0
 
-        # Compute the vectorial diversity:
-        #
-        # D = sqrt((ΣGx)² + (ΣGy)²) / Σ|vi|
         vectorial_diversity = (
-            np.sqrt(sum_x**2 + sum_y**2) / sum_magnitude
+            np.sqrt(sum_x**2 + sum_y**2)
+            / sum_magnitude
         )
 
         return vectorial_diversity
