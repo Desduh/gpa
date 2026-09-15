@@ -1151,9 +1151,9 @@ class GPA:
             If True, display the original matrix as the background.
 
         show_scale : bool, default=True
-            If True, display the x and y axes, including tick marks and
-            labels. If False, hide the ticks and labels while preserving
-            the plot area.
+            If True, display the x and y axes, including tick marks
+            and labels. If False, hide the ticks and labels while
+            preserving the plot area.
 
         show_center : bool, default=True
             If True, display the analysis center.
@@ -1182,7 +1182,6 @@ class GPA:
         y = y + 0.5
 
         # Determine plotting region
-
         if max(self.rows, self.cols) > 50 and has_vectors:
 
             rows, cols = np.where(valid)
@@ -1203,7 +1202,6 @@ class GPA:
             xmin = 0
             xmax = self.cols
 
-
         if not has_vectors:
 
             print("No asymmetric gradient vectors remaining.")
@@ -1211,15 +1209,18 @@ class GPA:
 
         # Not enough points for Delaunay triangulation
         if not hasattr(self, "vvx") or len(self.vvx) < 3:
-            print("Not enough asymmetric gradient vectors for Delaunay triangulation.")
+
+            print(
+                "Not enough asymmetric gradient vectors "
+                "for Delaunay triangulation."
+            )
+
             return
 
         # Figure
-
         fig, ax = plt.subplots(figsize=(5, 5))
 
         # Background image
-
         if show_image:
 
             ax.imshow(
@@ -1235,7 +1236,6 @@ class GPA:
             )
 
         # Normalize vectors for visualization
-
         max_gx = np.max(np.abs(gx))
         max_gy = np.max(np.abs(gy))
 
@@ -1250,7 +1250,6 @@ class GPA:
         v = gy * factor
 
         # Asymmetric gradient vectors
-
         ax.quiver(
             x[valid],
             y[valid],
@@ -1259,12 +1258,10 @@ class GPA:
             color=line_color,
             angles="xy",
             scale_units="xy",
-            scale=1,
-            width=0.003
+            scale=1
         )
 
         # Delaunay triangulation
-
         ax.triplot(
             self.vvx + 0.5,
             self.vvy + 0.5,
@@ -1274,7 +1271,6 @@ class GPA:
         )
 
         # Triangulation points
-
         ax.scatter(
             self.vvx + 0.5,
             self.vvy + 0.5,
@@ -1284,7 +1280,6 @@ class GPA:
         )
 
         # Analysis center
-
         if show_center:
 
             ax.scatter(
@@ -1298,28 +1293,153 @@ class GPA:
             )
 
         # Plot limits
-
         margin = 0.5
 
-        ax.set_xlim(xmin - margin, xmax + margin)
-        ax.set_ylim(ymin - margin, ymax + margin)
+        ax.set_xlim(
+            xmin - margin,
+            xmax + margin
+        )
+
+        ax.set_ylim(
+            ymin - margin,
+            ymax + margin
+        )
 
         # Minimal style
-
         if show_scale:
 
-            ax.set_xlabel("x")
-            ax.set_ylabel("y")
+            ax.set_xlabel("x [pixel]")
+            ax.set_ylabel("y [pixel]")
+
+            # Last pixel in the displayed region
+            xmax_pixel = xmax - 1
+            ymax_pixel = ymax - 1
+
+            # Number of pixels in the displayed region
+            width = xmax_pixel - xmin + 1
+            height = ymax_pixel - ymin + 1
+
+            # Generate integer pixel coordinates
+            if width <= 15:
+
+                xticks = np.arange(
+                    xmin,
+                    xmax_pixel + 1
+                )
+
+            else:
+
+                xticks = np.linspace(
+                    xmin,
+                    xmax_pixel,
+                    15
+                ).round().astype(int)
+
+                xticks = np.unique(xticks)
+
+            if height <= 15:
+
+                yticks = np.arange(
+                    ymin,
+                    ymax_pixel + 1
+                )
+
+            else:
+
+                yticks = np.linspace(
+                    ymin,
+                    ymax_pixel,
+                    15
+                ).round().astype(int)
+
+                yticks = np.unique(yticks)
+
+            # Place ticks at the center of each pixel
+            ax.set_xticks(xticks + 0.5)
+            ax.set_yticks(yticks + 0.5)
+
+            # Show all labels for small images
+            if width <= 15:
+
+                ax.set_xticklabels([
+                    str(value) for value in xticks
+                ])
+
+            else:
+
+                # Show only 3 labels
+                xlabels = np.linspace(
+                    0,
+                    len(xticks) - 1,
+                    3
+                ).round().astype(int)
+
+                # Always show zero when present
+                zero_index = np.where(xticks == 0)[0]
+
+                if len(zero_index) > 0:
+
+                    xlabels = np.unique(
+                        np.append(
+                            xlabels,
+                            zero_index[0]
+                        )
+                    )
+
+                ax.set_xticklabels([
+                    str(xticks[i]) if i in xlabels else ""
+                    for i in range(len(xticks))
+                ])
+
+            if height <= 15:
+
+                ax.set_yticklabels([
+                    str(value) for value in yticks
+                ])
+
+            else:
+
+                # Show only 3 labels
+                ylabels = np.linspace(
+                    0,
+                    len(yticks) - 1,
+                    3
+                ).round().astype(int)
+
+                # Always show zero when present
+                zero_index = np.where(yticks == 0)[0]
+
+                if len(zero_index) > 0:
+
+                    ylabels = np.unique(
+                        np.append(
+                            ylabels,
+                            zero_index[0]
+                        )
+                    )
+
+                ax.set_yticklabels([
+                    str(yticks[i]) if i in ylabels else ""
+                    for i in range(len(yticks))
+                ])
+
+            # Remove plot borders
+            for spine in ax.spines.values():
+
+                spine.set_visible(False)
 
         else:
 
+            # Remove ticks and labels
             ax.set_xticks([])
             ax.set_yticks([])
 
             ax.set_xlabel("")
             ax.set_ylabel("")
 
+            # Keep plot boundary
             for spine in ax.spines.values():
+
                 spine.set_visible(True)
                 spine.set_linewidth(0.8)
 
@@ -1352,13 +1472,13 @@ class GPA:
             the relative gradient magnitudes.
 
         show_image : bool, default=True
-            If True, display the original matrix as the background of
-            the gradient field.
+            If True, display the original matrix as the background
+            of the gradient field.
 
         show_scale : bool, default=True
-            If True, display the x and y axes, including tick marks and
-            labels. If False, hide the ticks and labels while preserving
-            the plot area.
+            If True, display the x and y axes, including tick marks
+            and labels. If False, hide the ticks and labels while
+            preserving the plot area.
 
         show_center : bool, default=True
             If True, display the analysis center.
@@ -1368,14 +1488,12 @@ class GPA:
         """
 
         # Pixels where vectors will be displayed
-
         valid = self.mask.astype(bool)
 
         gx = self.gradient_dx
         gy = self.gradient_dy
 
         # Coordinate grid
-
         y, x = np.mgrid[
             0:self.rows,
             0:self.cols
@@ -1385,7 +1503,6 @@ class GPA:
         y = y + 0.5
 
         # Normalize vectors or preserve magnitudes
-
         if fixed_length:
 
             magnitude = np.sqrt(gx**2 + gy**2)
@@ -1414,7 +1531,6 @@ class GPA:
             v = gy * factor
 
         # Bounding box of the mask
-
         rows, cols = np.where(valid)
 
         margin = 2
@@ -1426,11 +1542,9 @@ class GPA:
         xmax = min(cols.max() + margin + 1, self.cols)
 
         # Figure
-
         fig, ax = plt.subplots(figsize=(5, 5))
 
         # Background image
-
         if show_image:
 
             ax.imshow(
@@ -1446,7 +1560,6 @@ class GPA:
             )
 
         # Gradient vectors
-
         ax.quiver(
             x[valid],
             y[valid],
@@ -1459,7 +1572,6 @@ class GPA:
         )
 
         # Analysis center
-
         if show_center:
 
             ax.scatter(
@@ -1472,18 +1584,132 @@ class GPA:
             )
 
         # Plot limits
-
         margin = 0.5
 
         ax.set_xlim(xmin - margin, xmax + margin)
         ax.set_ylim(ymin - margin, ymax + margin)
 
         # Minimal style
-
         if show_scale:
 
-            ax.set_xlabel("x")
-            ax.set_ylabel("y")
+            ax.set_xlabel("x [pixel]")
+            ax.set_ylabel("y [pixel]")
+
+            # Last pixel in the displayed region
+            xmax_pixel = xmax - 1
+            ymax_pixel = ymax - 1
+
+            # Number of pixels in the displayed region
+            width = xmax_pixel - xmin + 1
+            height = ymax_pixel - ymin + 1
+
+            # Generate integer pixel coordinates
+            if width <= 15:
+
+                xticks = np.arange(
+                    xmin,
+                    xmax_pixel + 1
+                )
+
+            else:
+
+                xticks = np.linspace(
+                    xmin,
+                    xmax_pixel,
+                    15
+                ).round().astype(int)
+
+                xticks = np.unique(xticks)
+
+            if height <= 15:
+
+                yticks = np.arange(
+                    ymin,
+                    ymax_pixel + 1
+                )
+
+            else:
+
+                yticks = np.linspace(
+                    ymin,
+                    ymax_pixel,
+                    15
+                ).round().astype(int)
+
+                yticks = np.unique(yticks)
+
+            # Place ticks at the center of each pixel
+            ax.set_xticks(xticks + 0.5)
+            ax.set_yticks(yticks + 0.5)
+
+            # Show all labels for small images
+            if width <= 15:
+
+                ax.set_xticklabels([
+                    str(value) for value in xticks
+                ])
+
+            else:
+
+                # Show only 3 labels
+                xlabels = np.linspace(
+                    0,
+                    len(xticks) - 1,
+                    3
+                ).round().astype(int)
+
+                # Always show zero when present
+                zero_index = np.where(xticks == 0)[0]
+
+                if len(zero_index) > 0:
+
+                    xlabels = np.unique(
+                        np.append(
+                            xlabels,
+                            zero_index[0]
+                        )
+                    )
+
+                ax.set_xticklabels([
+                    str(xticks[i]) if i in xlabels else ""
+                    for i in range(len(xticks))
+                ])
+
+            if height <= 15:
+
+                ax.set_yticklabels([
+                    str(value) for value in yticks
+                ])
+
+            else:
+
+                # Show only 3 labels
+                ylabels = np.linspace(
+                    0,
+                    len(yticks) - 1,
+                    3
+                ).round().astype(int)
+
+                # Always show zero when present
+                zero_index = np.where(yticks == 0)[0]
+
+                if len(zero_index) > 0:
+
+                    ylabels = np.unique(
+                        np.append(
+                            ylabels,
+                            zero_index[0]
+                        )
+                    )
+
+                ax.set_yticklabels([
+                    str(yticks[i]) if i in ylabels else ""
+                    for i in range(len(yticks))
+                ])
+
+            # Remove plot borders
+            for spine in ax.spines.values():
+                spine.set_visible(False)
 
         else:
 
@@ -1496,6 +1722,7 @@ class GPA:
 
             # Keep the boundary of the image/plot
             for spine in ax.spines.values():
+
                 spine.set_visible(True)
                 spine.set_linewidth(0.8)
 
@@ -1525,13 +1752,13 @@ class GPA:
             the relative gradient magnitudes.
 
         show_image : bool, default=True
-            If True, display the original matrix as the background of
-            the gradient field.
+            If True, display the original matrix as the background
+            of the gradient field.
 
         show_scale : bool, default=True
-            If True, display the x and y axes, including tick marks and
-            labels. If False, hide the ticks and labels while preserving
-            the plot area.
+            If True, display the x and y axes, including tick marks
+            and labels. If False, hide the ticks and labels while
+            preserving the plot area.
 
         show_center : bool, default=True
             If True, display the analysis center used to identify
@@ -1552,7 +1779,6 @@ class GPA:
         has_vectors = np.any(valid)
 
         # Coordinate grid
-
         y, x = np.mgrid[
             0:self.rows,
             0:self.cols
@@ -1562,7 +1788,6 @@ class GPA:
         y = y + 0.5
 
         # Determine plotting region
-
         if max(self.rows, self.cols) > 50 and has_vectors:
 
             rows, cols = np.where(valid)
@@ -1584,9 +1809,8 @@ class GPA:
             xmax = self.cols
 
         # Normalize vectors if requested
-
         if has_vectors:
-            
+
             if fixed_length:
 
                 magnitude = np.sqrt(gx**2 + gy**2)
@@ -1617,14 +1841,13 @@ class GPA:
         else:
 
             print("No asymmetric gradient vectors remaining.")
+
             return
 
         # Figure
-
         fig, ax = plt.subplots(figsize=(5, 5))
 
         # Background image
-
         if show_image:
 
             ax.imshow(
@@ -1640,22 +1863,18 @@ class GPA:
             )
 
         # Asymmetric gradient vectors
-
-        if has_vectors:
-
-            ax.quiver(
-                x[valid],
-                y[valid],
-                u[valid],
-                v[valid],
-                color=color,
-                angles="xy",
-                scale_units="xy",
-                scale=1
-            )
+        ax.quiver(
+            x[valid],
+            y[valid],
+            u[valid],
+            v[valid],
+            color=color,
+            angles="xy",
+            scale_units="xy",
+            scale=1
+        )
 
         # Analysis center
-
         if show_center:
 
             ax.scatter(
@@ -1669,21 +1888,153 @@ class GPA:
             )
 
         # Plot limits
-
         margin = 0.5
 
-        ax.set_xlim(xmin - margin, xmax + margin)
-        ax.set_ylim(ymin - margin, ymax + margin)
+        ax.set_xlim(
+            xmin - margin,
+            xmax + margin
+        )
 
-        # Minimal style
+        ax.set_ylim(
+            ymin - margin,
+            ymax + margin
+        )
 
+        # Scale and ticks
         if show_scale:
 
-            ax.set_xlabel("x")
-            ax.set_ylabel("y")
+            ax.set_xlabel("x [pixel]")
+            ax.set_ylabel("y [pixel]")
+
+            # Last pixel in the displayed region
+            xmax_pixel = xmax - 1
+            ymax_pixel = ymax - 1
+
+            # Number of pixels in the displayed region
+            width = xmax_pixel - xmin + 1
+            height = ymax_pixel - ymin + 1
+
+            # Generate integer pixel coordinates
+            if width <= 15:
+
+                xticks = np.arange(
+                    xmin,
+                    xmax_pixel + 1
+                )
+
+            else:
+
+                xticks = np.linspace(
+                    xmin,
+                    xmax_pixel,
+                    15
+                ).round().astype(int)
+
+                xticks = np.unique(xticks)
+
+            if height <= 15:
+
+                yticks = np.arange(
+                    ymin,
+                    ymax_pixel + 1
+                )
+
+            else:
+
+                yticks = np.linspace(
+                    ymin,
+                    ymax_pixel,
+                    15
+                ).round().astype(int)
+
+                yticks = np.unique(yticks)
+
+            # Place ticks at the center of each pixel
+            ax.set_xticks(xticks + 0.5)
+            ax.set_yticks(yticks + 0.5)
+
+            # Show all labels for small images
+            if width <= 15:
+
+                ax.set_xticklabels([
+                    str(value)
+                    for value in xticks
+                ])
+
+            else:
+
+                # Show only 3 labels
+                xlabels = np.linspace(
+                    0,
+                    len(xticks) - 1,
+                    3
+                ).round().astype(int)
+
+                # Always show zero when present
+                zero_index = np.where(
+                    xticks == 0
+                )[0]
+
+                if len(zero_index) > 0:
+
+                    xlabels = np.unique(
+                        np.append(
+                            xlabels,
+                            zero_index[0]
+                        )
+                    )
+
+                ax.set_xticklabels([
+                    str(xticks[i])
+                    if i in xlabels
+                    else ""
+                    for i in range(len(xticks))
+                ])
+
+            if height <= 15:
+
+                ax.set_yticklabels([
+                    str(value)
+                    for value in yticks
+                ])
+
+            else:
+
+                # Show only 3 labels
+                ylabels = np.linspace(
+                    0,
+                    len(yticks) - 1,
+                    3
+                ).round().astype(int)
+
+                # Always show zero when present
+                zero_index = np.where(
+                    yticks == 0
+                )[0]
+
+                if len(zero_index) > 0:
+
+                    ylabels = np.unique(
+                        np.append(
+                            ylabels,
+                            zero_index[0]
+                        )
+                    )
+
+                ax.set_yticklabels([
+                    str(yticks[i])
+                    if i in ylabels
+                    else ""
+                    for i in range(len(yticks))
+                ])
+
+            # Remove plot borders
+            for spine in ax.spines.values():
+                spine.set_visible(False)
 
         else:
 
+            # Remove ticks and labels
             ax.set_xticks([])
             ax.set_yticks([])
 
@@ -1692,6 +2043,7 @@ class GPA:
 
             # Keep the plot boundary
             for spine in ax.spines.values():
+
                 spine.set_visible(True)
                 spine.set_linewidth(0.8)
 
