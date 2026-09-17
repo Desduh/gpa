@@ -955,12 +955,12 @@ class GPA:
         dy = self.gradient_asymmetric_dy
 
         # Select non-zero asymmetric gradient vectors
-        naozero = np.flatnonzero(
-            (dx != 0) | (dy != 0)
-        )
+        mask = self.mask
 
-        # Number of asymmetric gradient vectors
-        self.totalAssimetric = len(naozero)
+        naozero = np.flatnonzero(
+            ((dx != 0) | (dy != 0)) &
+            (mask != 0)
+        )
 
         if self.totalAssimetric < 3:
 
