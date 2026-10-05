@@ -1581,7 +1581,7 @@ class GPA:
                 self.cy + 0.5,
                 marker="x",
                 color="blue",
-                s=150,
+                s=50,
                 linewidths=2
             )
 
@@ -1884,7 +1884,7 @@ class GPA:
                 self.cy + 0.5,
                 marker="x",
                 color="blue",
-                s=150,
+                s=50,
                 linewidths=2,
                 zorder=4
             )
